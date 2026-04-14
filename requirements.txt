@@ -1,0 +1,21 @@
+# Azure AI SDK
+azure-ai-projects==2.0.1
+azure-ai-agents==1.1.0
+azure-identity==1.25.3
+azure-storage-blob>=12.15.0
+azure-ai-documentintelligence==1.0.2
+azure-search-documents>=11.6.0b7
+
+# OpenAI SDK (para Azure OpenAI)
+openai>=2.0.0
+
+# Utils
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+typing-extensions>=4.11.0
+tiktoken>=0.5.0
+
+# Development
+pytest>=8.0.0
+black>=24.0.0
+ruff>=0.0.292
