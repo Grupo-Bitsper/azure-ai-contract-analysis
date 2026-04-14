@@ -15,6 +15,10 @@ pydantic>=2.0.0
 typing-extensions>=4.11.0
 tiktoken>=0.5.0
 
+# SharePoint Integration (opcional)
+Office365-REST-Python-Client>=2.5.0
+requests>=2.31.0
+
 # Development
 pytest>=8.0.0
 black>=24.0.0
