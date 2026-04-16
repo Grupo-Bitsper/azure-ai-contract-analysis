@@ -169,12 +169,13 @@ RESTRICCIONES:
         print(f"\n🤖 Creando agente '{self.agent_name}'...")
 
         try:
-            # Crear agente con GPT-5.4-mini sin tools personalizadas
+            # Crear agente sin tools personalizadas
             # La búsqueda se hará pre-procesando la query del usuario
+            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
             self.agent = self.project.agents.create_version(
                 agent_name=self.agent_name,
                 definition=PromptAgentDefinition(
-                    model="gpt-5.4-mini",
+                    model=deployment,
                     instructions=instructions
                 )
             )
@@ -183,7 +184,7 @@ RESTRICCIONES:
             print(f"   Nombre: {self.agent.name}")
             print(f"   Versión: {self.agent.version}")
             print(f"   ID: {self.agent.id}")
-            print(f"   Modelo: gpt-5.4-mini")
+            print(f"   Modelo: {deployment}")
             print(f"   Índice: {self.index_name}")
             print(f"   🔍 Búsqueda directa configurada")
 

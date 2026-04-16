@@ -33,12 +33,20 @@ logs/
 # Azure
 .azure/
 
+# Azure Functions — dependencias instaladas localmente (se reinstalan en deploy)
+function_app/.python_packages/
+
+# Backups
+*.full
+
 # Project-specific
 output/
 *.png
 *.pdf
 *.jpg
 *.jpeg
+contratosdemo_real/
+FASE_4A_DISCOVERY_REPORT.md.bak
 
 # Claude Code
 .claude/

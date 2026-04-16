@@ -2,6 +2,7 @@
 Extrae metadata estructurada de archivos OCR usando GPT-4o
 Procesa todos los contratos en output/ocr_results/
 """
+import os
 import sys
 import json
 from pathlib import Path
@@ -70,9 +71,10 @@ def extract_metadata_from_text(ocr_text: str, filename: str) -> Optional[Dict]:
         prompt = EXTRACTION_PROMPT_TEMPLATE.format(ocr_text=ocr_text)
 
         # Llamar a GPT con JSON mode
-        print(f"   🤖 Extrayendo metadata con GPT-5.4-mini...")
+        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+        print(f"   🤖 Extrayendo metadata con {deployment}...")
         response = client.chat.completions.create(
-            model="gpt-5.4-mini",  # Usar el deployment disponible
+            model=deployment,
             messages=[
                 {"role": "system", "content": "Eres un experto en análisis de contratos legales. Respondes SOLO con JSON válido."},
                 {"role": "user", "content": prompt}
