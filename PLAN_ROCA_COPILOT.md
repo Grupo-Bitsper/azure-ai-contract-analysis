@@ -1,7 +1,7 @@
 # ROCA Copilot — Plan de Implementación
 
-**Estado**: Fases 1–7 COMPLETAS. El agente responde en Teams. ✅
-**Última actualización**: 2026-04-16
+**Estado**: Fases 1–7 COMPLETAS + Hardening de pipeline 2026-04-17. El agente responde en Teams. ✅
+**Última actualización**: 2026-04-17
 **Dueño técnico**: Abraham Martínez (`admin.copilot@rocadesarrollos.com`)
 **Stakeholders producto**: Moisés Rodriguez, Omar Villa (ROCA)
 **Cuenta Azure**: FES Azure Plan (`fea67fdf-9603-4c86-a590-cd12390b7efd`) / Tenant ROCA TEAM SA DE CV (`9015a126-356b-4c63-9d1f-d2138ca83176`)
@@ -99,8 +99,9 @@
 | D-17 | `build_security_filter` custom function tool         | ⏸ Pendiente | 🟠 Alta   | Fase 6.1b. Necesario para que el agente filtre resultados por usuario (cada usuario solo ve docs a los que tiene permiso en SharePoint). **Obligatorio antes de exponer el agente a usuarios que NO deben ver todos los docs.**                                                                                                                                                                              |
 | D-18 | `BOT_APP_PASSWORD` debe moverse a Key Vault          | ⏸ Abierta   | 🟡 Media  | Actualmente el secret vive en App Settings (texto plano). Moverlo a KV (`kv-roca-copilot-prod`) y referenciar desde App Settings como `@Microsoft.KeyVault(SecretUri=...)` elimina el riesgo de que el CLI corrompa el valor.                                                                                                                                                                                |
 | D-19 | Logs de debug del bot en producción                  | ⏸ Abierta   | 🟢 Baja   | `function_app.py` y `shared/bot.py` tienen logs detallados (`[BOT]`, `[BOT-HTTP]`, `[BOT-REPLY]`) que generan ruido en Application Insights. Reducir nivel a DEBUG y filtrar en queries KQL una vez el bot esté estable en producción.                                                                                                                                                                       |
-| D-20 | Pipeline `process_item_activity` OOM (exit code 137) | ⏸ Abierta   | 🟡 Media  | El pipeline genera 429 de Azure OpenAI y puede tener memory pressure combinada con la carga del bot (ambos en la misma Function App Y1 Consumption). Fix: separar timeouts, agregar retry exponencial con backoff, considerar separar bot y pipeline en dos Function Apps distintas si el OOM persiste.                                                                                                      |
+| D-20 | Pipeline `process_item_activity` OOM (exit code 137) | ✅ Parcial  | 🟡 Media  | PDFs grandes ya se dividen en chunks de 50 páginas via `pypdf` antes de enviarse a Document Intelligence (fix 2026-04-17). Reduce drásticamente el riesgo de OOM y timeout. Si persiste en PDFs extremadamente pesados, considerar separar bot y pipeline en dos Function Apps distintas.                                                                                                                   |
 | D-21 | Delta token avanza aunque haya errores en el batch   | ⏸ Abierta   | 🟡 Media  | Si el pipeline procesa 50 items y 48 fallan (ej: 429), el delta token se persiste y los 48 fallidos no se reprocesarán hasta el full_resync del domingo. Fix: mover `persist_delta_token_activity` a después de verificar que `errors == 0`. Mismo que D-14 pero renombrado con contexto adicional.                                                                                                          |
+| D-22 | Procesamiento fan-out por lotes para >500 items      | ⏸ Pendiente | 🟢 Baja   | `enumerate_all_items_activity` envía todos los items de golpe a `task_all()`. Para el volumen actual de ROCA (<500 PDFs) no es problema. Si escalan a miles de archivos, implementar lotes de 100 en 100 en el orchestrator para evitar payload gigante en el historial de Durable Functions.                                                                                                               |
 
 ---
 
@@ -133,14 +134,15 @@ El delta token vive como blob en `strocacopilotprod/ocr-raw/delta-tokens/{drive_
 4. El doc pasa por OCR → `gpt-4.1-mini` extrae metadata → embeddings → upsert al índice
 5. El agente en Foundry ya puede responder preguntas sobre ese doc
 
-### Estado del índice (2026-04-16)
+### Estado del índice (2026-04-17)
 
-| Métrica                                                  | Valor                                        |
-| -------------------------------------------------------- | -------------------------------------------- |
-| Chunks en `roca-contracts-v1`                            | ~1505+ (en crecimiento — full_resync activo) |
-| Chunks originales cargados manualmente (Fase 4B)         | 1370                                         |
-| Chunks nuevos detectados por pipeline (desde 2026-04-16) | +135 y contando                              |
-| Sites sincronizados                                      | `ROCA-IAInmuebles` + `ROCAIA-INMUEBLESV2`    |
+| Métrica                                                  | Valor                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------ |
+| Chunks en `roca-contracts-v1`                            | ~5000+ (en crecimiento — full_resync activo)                 |
+| Chunks originales cargados manualmente (Fase 4B)         | 1370                                                         |
+| Chunks nuevos tras fix de embedding (2026-04-17)         | +3600+ y contando                                            |
+| Inmuebles con código ROCA indexado                       | 32 códigos únicos (GU01A 180, RA03 227, RE05 315, CJ03 195…) |
+| Sites sincronizados                                      | `ROCA-IAInmuebles` + `ROCAIA-INMUEBLESV2`                    |
 
 ---
 
@@ -204,6 +206,108 @@ for i in sorted(json.load(sys.stdin), key=lambda x: x['createdTime'], reverse=Tr
 ```
 
 Si `lastUpdatedTime` avanza cada pocos segundos → pipeline procesando activamente. Si está congelado → investigar logs en Log Analytics (`log-roca-copilot-prod`).
+
+**Regla de operación**: **nunca hacer Stop de la Function App mientras hay orquestaciones Running**.
+
+---
+
+### Incidente 2026-04-17 — Embedding roto / solo 5 inmuebles indexados
+
+**Causa raíz**: El deployment `text-embedding-3-small` (Standard, 100K TPM) retornaba `OperationNotSupported` para **todas** las versiones de API. El deployment aparecía como `Succeeded` en el portal pero era funcionalmente inoperante. Como consecuencia, ~95% de los documentos fallaban en el paso de vectorización y se enviaban al DLQ sin indexarse. Los 5 inmuebles que sí funcionaban tenían sus vectores de una carga manual previa (Fase 4B).
+
+**Síntomas**:
+- El agente solo encontraba 5 inmuebles (RA03, GU01A, RE05A, CJ03A, SL02)
+- DLQ con 32+ mensajes, todos con error `OperationNotSupported`
+- `curl` directo al endpoint de embeddings con API key fallaba igual
+- Índice con 1505 chunks totales pero solo ~300 con vectores válidos
+
+**Procedimiento de recuperación**:
+
+```bash
+# 1. Borrar el deployment corrupto
+az cognitiveservices account deployment delete \
+  --name rocadesarrollo-resource \
+  --resource-group rg-admin.copilot-9203 \
+  --deployment-name text-embedding-3-small
+
+# 2. Recrear el deployment
+az cognitiveservices account deployment create \
+  --name rocadesarrollo-resource \
+  --resource-group rg-admin.copilot-9203 \
+  --deployment-name text-embedding-3-small \
+  --model-name text-embedding-3-small \
+  --model-version "1" \
+  --model-format OpenAI \
+  --sku-name Standard \
+  --sku-capacity 100
+
+# 3. Verificar que funciona (debe devolver vector de 1536 dims)
+AOAI_KEY=$(az cognitiveservices account keys list \
+  --name rocadesarrollo-resource --resource-group rg-admin.copilot-9203 --query key1 -o tsv)
+curl -s -X POST \
+  "https://rocadesarrollo-resource.openai.azure.com/openai/deployments/text-embedding-3-small/embeddings?api-version=2024-10-21" \
+  -H "api-key: $AOAI_KEY" -H "Content-Type: application/json" \
+  -d '{"input": ["test"]}' | python3 -c "import json,sys; r=json.load(sys.stdin); print('OK dims:', len(r['data'][0]['embedding']))"
+
+# 4. Limpiar DLQ
+STORAGE_CONN=$(az functionapp config appsettings list \
+  --name func-roca-copilot-sync --resource-group rg-roca-copilot-prod \
+  --query "[?name=='AzureWebJobsStorage'].value" -o tsv)
+az storage message clear --queue-name roca-dlq --connection-string "$STORAGE_CONN"
+
+# 5. Triggear full resync para re-indexar todos los documentos
+FUNC_KEY=$(az functionapp keys list \
+  --name func-roca-copilot-sync --resource-group rg-roca-copilot-prod \
+  --query "functionKeys.default" -o tsv)
+curl -s -X POST \
+  "https://func-roca-copilot-sync.azurewebsites.net/api/manual/process?code=$FUNC_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"event_type": "full_resync"}'
+```
+
+---
+
+### Hardening de pipeline aplicado 2026-04-17
+
+Los siguientes cambios fueron aplicados al pipeline para hacerlo más robusto. Todos viven en `function_app/` y se deployaron via `deploy.sh`.
+
+#### 1. Sincronización de borrados SharePoint → AI Search + Blob
+
+**Antes**: cuando un archivo era borrado en SharePoint, el delta timer lo ignoraba (`if item.get("deleted"): continue`). El chunk seguía en el índice indefinidamente y el agente podía responder con información de archivos que ya no existen.
+
+**Después**: `get_delta_changes_activity` captura los IDs de items borrados y los devuelve en una lista `deletions`. El `sync_delta_orchestrator` llama a `delete_item_activity` por cada borrado, que:
+1. Borra todos los chunks del índice de AI Search filtrando por `sp_list_item_id`
+2. Borra el PDF cacheado en Blob Storage (`ocr-raw/sample_discovery/{content_hash}.pdf`)
+
+El borrado es idempotente — si el archivo ya no existía en el índice, no falla.
+
+#### 2. PDFs grandes — split automático por páginas
+
+**Antes**: PDFs de más de ~50 páginas (ej: contratos de 99MB y 75MB de GU01A) causaban timeout a los 10 minutos en `process_item_activity`, enviándose al DLQ sin indexarse.
+
+**Después**: `docintel_client.analyze_pdf_bytes()` detecta automáticamente si el PDF tiene más de 50 páginas. Si es así, usa `pypdf` para dividirlo en partes de 50 páginas, procesa cada parte por separado con Document Intelligence, y concatena los resultados. Funciona para PDFs escaneados (imágenes) porque pypdf opera a nivel de estructura de páginas, no de contenido.
+
+Archivos modificados: `shared/docintel_client.py`, `requirements.txt` (agregado `pypdf==4.3.1`).
+
+#### 3. Límite de enumeración 500 → 5000
+
+**Antes**: `enumerate_all_items_activity` usaba `max_items=500`, lo que significaba que si SharePoint tenía más de 500 PDFs, los restantes nunca se indexaban.
+
+**Después**: `max_items=5000`. La paginación via `@odata.nextLink` ya existía en `graph_client.list_drive_items_recursive` — el límite era artificial.
+
+#### 4. Corrección de `inmueble_codigo_principal`
+
+**Antes**: el LLM de extracción a veces devolvía números catastrales (`002-247-009`, `4084/2020`) como primer elemento de `codigos_inmueble`, quedando como `inmueble_codigo_principal`. El agente no podía filtrar por código ROCA.
+
+**Después**: en `ingestion.py`, la lista se ordena antes de asignar el principal: los códigos puramente numéricos/catastrales se mueven al final. Además, el prompt de `extraction.py` fue actualizado para instruir al LLM a poner los códigos ROCA (`RA03`, `GU01A`, etc.) primero.
+
+#### 5. Agente `rocky-copilot` actualizado
+
+System prompt actualizado vía API de Foundry con:
+- Lista explícita de códigos ROCA conocidos
+- **Estrategia de búsqueda con fallback**: si búsqueda filtrada por código devuelve 0 resultados, reintenta con búsqueda semántica pura
+- `top_k` aumentado de 5 a 7 para cubrir contratos completos (típicamente 4-6 chunks)
+- AI Search tool reconectado a `roca-contracts-v1` con `vector_semantic_hybrid`
 
 **Regla de operación**: **nunca hacer Stop de la Function App mientras hay orquestaciones Running**. Si se necesita parar para deploy, usar `az functionapp stop` solo después de verificar que no hay instancias `Running` con historial reciente. El `deploy.sh` existente (que usa `WEBSITE_RUN_FROM_PACKAGE`) no requiere stop — hace swap de zip sin detener el host.
 

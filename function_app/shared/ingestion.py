@@ -10,10 +10,16 @@ Includes all F4B post-smoke fixes:
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 
 from . import config
 from .dates import compute_end_from_duration, normalize_date
+
+# Catastral/folio identifiers: purely numeric or patterns like "002-247-009",
+# "4084/2020", "F/1349". These are valid property identifiers but should never
+# be chosen as inmueble_codigo_principal over a ROCA internal code (RA03, etc.).
+_CATASTRAL_ONLY = re.compile(r'^[\d\s/\-,\.]+$')
 
 
 # --- Chunking ---------------------------------------------------------------
@@ -145,6 +151,9 @@ def extract_metadata(model_output: dict | None) -> dict:
     if not isinstance(codigos, list):
         codigos = []
     codigos_clean = [str(c).strip()[:200] for c in codigos if c and str(c).strip()]
+    # Prefer ROCA internal codes (letters + digits) over catastral/folio numbers.
+    # Sort: non-catastral codes first, catastral-only last.
+    codigos_clean.sort(key=lambda c: 1 if _CATASTRAL_ONLY.match(c) else 0)
     codigo_principal = codigos_clean[0] if codigos_clean else None
 
     entidades = model_output.get("entidades_clave") or []

@@ -352,6 +352,7 @@ def sync_delta_orchestrator(context: df.DurableOrchestrationContext):
             {"drive_id": drive_id},
         )
         changes = delta_result.get("changes", [])
+        deletions = delta_result.get("deletions", [])
         new_delta_link = delta_result.get("delta_link")
 
         tasks = []
@@ -368,6 +369,14 @@ def sync_delta_orchestrator(context: df.DurableOrchestrationContext):
                     },
                 )
             )
+        for deletion in deletions:
+            tasks.append(
+                context.call_activity_with_retry(
+                    "delete_item_activity",
+                    RETRY_FAST,
+                    deletion,
+                )
+            )
         results = yield context.task_all(tasks) if tasks else []
 
         ok = sum(1 for r in results if r.get("status") == "ok")
@@ -375,6 +384,7 @@ def sync_delta_orchestrator(context: df.DurableOrchestrationContext):
         errors = sum(1 for r in results if r.get("status") == "error")
         summary["sites"][site_name] = {
             "changes": len(changes),
+            "deletions": len(deletions),
             "ok": ok,
             "skipped": skipped,
             "errors": errors,
@@ -459,6 +469,33 @@ def process_item_orchestrator(context: df.DurableOrchestrationContext):
 # ============================================================================
 
 
+@app.activity_trigger(input_name="payload")
+def delete_item_activity(payload: dict) -> dict:
+    """Deletes all AI Search chunks and cached blob for a SharePoint item that
+    was removed. Called by sync_delta_orchestrator when Graph delta reports a
+    deletion. Safe to call multiple times (idempotent)."""
+    sp_item_id = payload["id"]
+    deleted, failed, content_hashes = search_client.delete_by_sp_item_id(sp_item_id)
+
+    for content_hash in content_hashes:
+        try:
+            blob = BlobClient(
+                account_url=f"https://{config.STORAGE_ACCOUNT}.blob.core.windows.net",
+                container_name=config.OCR_CONTAINER,
+                blob_name=f"sample_discovery/{content_hash}.pdf",
+                credential=auth.get_mi_credential(),
+            )
+            blob.delete_blob(delete_snapshots="include")
+        except Exception:
+            pass  # blob may not exist — not an error
+
+    logging.info(
+        "delete_item_activity sp_item_id=%s chunks_deleted=%d failed=%d blobs=%d",
+        sp_item_id, deleted, failed, len(content_hashes),
+    )
+    return {"status": "ok", "deleted": deleted, "failed": failed}
+
+
 @app.activity_trigger(input_name="site_name")
 def resolve_drive_activity(site_name: str) -> dict:
     site_id = graph_client.get_site_id(site_name)
@@ -472,17 +509,17 @@ def get_delta_changes_activity(payload: dict) -> dict:
     delta_link = read_delta_token(drive_id)
 
     changes: list[dict] = []
+    deletions: list[dict] = []
     final_delta: str | None = None
     for item in graph_client.iter_delta_changes(drive_id, delta_link):
         if "__final_delta_link__" in item:
             final_delta = item["__final_delta_link__"]
             continue
         if item.get("deleted"):
+            deletions.append({"id": item["id"]})
             continue
         file_info = item.get("file") or {}
         if file_info.get("mimeType") != "application/pdf":
-            continue
-        if item.get("size", 0) > 50 * 1024 * 1024:
             continue
         changes.append(
             {
@@ -493,7 +530,7 @@ def get_delta_changes_activity(payload: dict) -> dict:
                 "parentReference": item.get("parentReference", {}),
             }
         )
-    return {"changes": changes, "delta_link": final_delta}
+    return {"changes": changes, "deletions": deletions, "delta_link": final_delta}
 
 
 @app.activity_trigger(input_name="payload")
@@ -552,9 +589,7 @@ def enumerate_all_items_activity(payload: Any) -> list[dict]:
         try:
             site_id = graph_client.get_site_id(site_name)
             drive_id = graph_client.get_default_drive_id(site_id)
-            for item in graph_client.list_drive_items_recursive(drive_id, max_items=500):
-                if item.get("size", 0) > 50 * 1024 * 1024:
-                    continue
+            for item in graph_client.list_drive_items_recursive(drive_id, max_items=5000):
                 all_items.append(
                     {
                         "site_name": site_name,

@@ -120,6 +120,28 @@ def list_unique_hashes_with_refs() -> list[dict]:
     return list(seen.values())
 
 
+def delete_by_sp_item_id(sp_item_id: str) -> tuple[int, int, list[str]]:
+    """Deletes all index chunks whose sp_list_item_id matches the given SharePoint
+    item ID. Returns (deleted_count, failed_count, content_hashes). Called when
+    Graph delta reports a file deletion so the caller can also purge the blob cache."""
+    client = get_search_client()
+    results = client.search(
+        search_text="*",
+        filter=f"sp_list_item_id eq '{sp_item_id}'",
+        top=200,
+        select=["id", "content_hash"],
+    )
+    chunks = [dict(r) for r in results]
+    if not chunks:
+        return 0, 0, []
+    to_delete = [{"id": c["id"]} for c in chunks]
+    result = client.delete_documents(documents=to_delete)
+    ok = sum(1 for r in result if r.succeeded)
+    failed = sum(1 for r in result if not r.succeeded)
+    content_hashes = list({c["content_hash"] for c in chunks if c.get("content_hash")})
+    return ok, failed, content_hashes
+
+
 def iter_indexed_docs(select_fields: list[str], top: int = 1000) -> list[dict]:
     """Iterates all documents in the current target index. Used by ACL refresh
     and full resync workflows. For the staging scale (<1000 chunks) a single
