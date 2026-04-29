@@ -66,6 +66,33 @@ def download_item_bytes(drive_id: str, item_id: str) -> bytes:
     return resp.content
 
 
+def stream_download_to_temp(drive_id: str, item_id: str) -> tuple[str, str]:
+    """Streams a Graph drive item to /tmp in 64KB chunks, computing MD5 simultaneously.
+    Returns (tmp_path, content_hash). Max RAM at any point: 64KB, not the full file size.
+    Caller MUST call os.unlink(tmp_path) when done (use try/finally)."""
+    import hashlib
+    import os
+    import tempfile
+
+    url = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"
+    md5 = hashlib.md5()
+    fd, tmp_path = tempfile.mkstemp(suffix=".pdf", dir="/tmp")
+    try:
+        with requests.get(url, headers=_headers(), stream=True, timeout=300) as resp:
+            resp.raise_for_status()
+            with os.fdopen(fd, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    md5.update(chunk)
+                    f.write(chunk)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    return tmp_path, md5.hexdigest()
+
+
 # --- Delta query for incremental sync ---
 
 

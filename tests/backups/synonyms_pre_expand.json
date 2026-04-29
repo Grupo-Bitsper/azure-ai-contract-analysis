@@ -1,0 +1,8 @@
+{
+  "@odata.context": "https://srch-roca-copilot-prod.search.windows.net/$metadata#synonymmaps/$entity",
+  "@odata.etag": "\"0x8DE9F5778F353EE\"",
+  "encryptionKey": null,
+  "format": "solr",
+  "name": "roca-synonyms",
+  "synonyms": "titulo de propiedad, escritura publica, primer testimonio, testimonio notarial, escritura, titulo propiedad\ncontrato de arrendamiento, arrendamiento, renta, lease, lease agreement\ncontrato de compraventa, compraventa, venta\nlicencia de construccion, licencia construccion, permiso construccion\nmanifestacion de impacto ambiental, MIA, estudio ambiental, impacto ambiental\npoliza de seguro, seguro, poliza\nacta constitutiva, acta de asamblea, asamblea\nplano arquitectonico, plano, planos, as built, as-built\nconstancia de situacion fiscal, CSF, constancia fiscal, situacion fiscal\nestudio geotecnico, geotecnia, estudio de suelo\nRA03, RA 03, RA-03\nGU01A, GU 01A, GU-01A, GU01 A\nCJ03, CJ 03, CJ-03\nCJ03B, CJ 03B, CJ-03B\nRE05, RE 05, RE-05\nRE05A, RE 05A, RE-05A\nSL02, SL 02, SL-02\ninmueble, propiedad, predio"
+}

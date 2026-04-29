@@ -1,0 +1,28 @@
+{
+  "name": "roca-knowledge-base",
+  "description": "Agentic retrieval para ROCA Copilot",
+  "knowledgeSources": [
+    {
+      "name": "roca-knowledge-source"
+    }
+  ],
+  "models": [
+    {
+      "azureOpenAIParameters": {
+        "apiKey": null,
+        "authIdentity": null,
+        "deploymentId": "gpt-4.1-mini",
+        "modelName": "gpt-4.1-mini",
+        "resourceUri": "https://rocadesarrollo-resource.cognitiveservices.azure.com"
+      },
+      "kind": "azureOpenAI"
+    }
+  ],
+  "answerInstructions": "Responde en espanol mexicano profesional. Cuando el usuario pregunte por detalles especificos de un documento (firmantes, notaria, fechas, clausulas, montos), extrae la informacion exacta del texto retrieved y citala. Siempre incluye el nombre del archivo fuente y, si esta disponible, el sharepoint_url para que el usuario pueda verificar.",
+  "retrievalInstructions": null,
+  "encryptionKey": null,
+  "outputMode": "extractiveData",
+  "retrievalReasoningEffort": {
+    "kind": "medium"
+  }
+}

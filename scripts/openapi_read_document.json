@@ -1,0 +1,117 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ROCA Ingest — Read Document Tool",
+    "version": "1.0.0",
+    "description": "Retrieves the full OCR text of a document already indexed in AI Search. Use this AFTER search_index to read the exact content of a specific document."
+  },
+  "servers": [
+    {
+      "url": "https://func-roca-ingest-prod.azurewebsites.net/api"
+    }
+  ],
+  "paths": {
+    "/read_document/{content_hash}": {
+      "get": {
+        "operationId": "read_document",
+        "summary": "Read complete OCR text of a document by its content_hash",
+        "description": "Returns the full reconstructed text of a document from its indexed chunks. Use content_hash from search_index results. Optionally limit to specific pages with page_range.",
+        "parameters": [
+          {
+            "name": "content_hash",
+            "in": "path",
+            "required": true,
+            "description": "The content_hash field returned by search_index tool. Uniquely identifies a document version.",
+            "schema": {
+              "type": "string",
+              "example": "sha256:a3f2b1..."
+            }
+          },
+          {
+            "name": "page_range",
+            "in": "query",
+            "required": false,
+            "description": "Optional page range to return (e.g. '1-3' for pages 1 to 3, '5' for page 5 only). Omit to return all pages.",
+            "schema": {
+              "type": "string",
+              "example": "1-5",
+              "pattern": "^\\d+(-\\d+)?$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full document text returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "content_hash": {
+                      "type": "string",
+                      "description": "The content_hash of the document"
+                    },
+                    "nombre_archivo": {
+                      "type": "string",
+                      "description": "Document filename in SharePoint"
+                    },
+                    "sharepoint_url": {
+                      "type": "string",
+                      "description": "Direct SharePoint URL to the document"
+                    },
+                    "folder_path": {
+                      "type": "string",
+                      "description": "SharePoint folder path"
+                    },
+                    "total_chunks": {
+                      "type": "integer",
+                      "description": "Total number of text chunks in the document"
+                    },
+                    "chunks_returned": {
+                      "type": "integer",
+                      "description": "Number of chunks included in this response"
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Full OCR text of the document (or requested page range)"
+                    }
+                  },
+                  "required": ["content_hash", "nombre_archivo", "text"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Document not found in search index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {"type": "string"},
+                    "content_hash": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "functionKey": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "functionKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-functions-key",
+        "description": "Azure Function host key"
+      }
+    }
+  }
+}

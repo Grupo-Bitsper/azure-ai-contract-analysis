@@ -1,0 +1,46 @@
+{
+  "@odata.context": "https://srch-roca-copilot-prod.search.windows.net/$metadata#knowledgesources/$entity",
+  "@odata.etag": "\"0x8DEA024071EF752\"",
+  "azureBlobParameters": null,
+  "description": "Wrapper sobre el indice roca-contracts-v1 para Agentic Retrieval",
+  "encryptionKey": null,
+  "fabricIQParameters": null,
+  "indexedOneLakeParameters": null,
+  "indexedSharePointParameters": null,
+  "kind": "searchIndex",
+  "mcpToolParameters": null,
+  "name": "roca-knowledge-source",
+  "remoteSharePointParameters": null,
+  "searchIndexParameters": {
+    "searchFields": [],
+    "searchIndexName": "roca-contracts-v1",
+    "semanticConfigurationName": null,
+    "sourceDataFields": [
+      {
+        "name": "content_hash"
+      },
+      {
+        "name": "nombre_archivo"
+      },
+      {
+        "name": "sharepoint_url"
+      },
+      {
+        "name": "folder_path"
+      },
+      {
+        "name": "doc_type"
+      },
+      {
+        "name": "inmueble_codigo_principal"
+      },
+      {
+        "name": "inmueble_codigos"
+      },
+      {
+        "name": "content"
+      }
+    ]
+  },
+  "webParameters": null
+}

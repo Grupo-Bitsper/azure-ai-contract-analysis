@@ -1,0 +1,75 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.22",
+  "version": "2.1.0",
+  "id": "0bfce6c7-7d2f-4d95-8d9d-bb5b8f03af44",
+  "developer": {
+    "name": "FESWORLD",
+    "websiteUrl": "https://www.fesworld.com.mx/",
+    "privacyUrl": "https://www.fesworld.com.mx/politica.html",
+    "termsOfUseUrl": "https://www.fesworld.com.mx/politica.html"
+  },
+  "name": {
+    "short": "ROCA Copilot",
+    "full": "ROCA Copilot"
+  },
+  "description": {
+    "short": "Asistente de documentación de ROCA",
+    "full": "Consulta contratos, licencias, permisos, pólizas y documentación legal de ROCA. Busca por código de inmueble, tipo de documento, vigencia, RFC y más."
+  },
+  "icons": {
+    "color": "default-color-icon.png",
+    "outline": "default-outline-icon.png"
+  },
+  "accentColor": "#4464ee",
+  "validDomains": [
+    "func-roca-copilot-sync.azurewebsites.net"
+  ],
+  "bots": [
+    {
+      "botId": "0bfce6c7-7d2f-4d95-8d9d-bb5b8f03af44",
+      "scopes": [
+        "personal",
+        "team",
+        "groupChat"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            {
+              "title": "Ver contrato de inmueble",
+              "description": "Muéstrame el contrato vigente del inmueble RA03"
+            },
+            {
+              "title": "Estudio de impacto ambiental",
+              "description": "¿Hay estudio de impacto ambiental para el inmueble SL02?"
+            },
+            {
+              "title": "Próximos vencimientos",
+              "description": "Lista los contratos que vencen en los próximos 90 días"
+            },
+            {
+              "title": "Resumen ejecutivo",
+              "description": "Genera un resumen ejecutivo del expediente del inmueble GU01A"
+            },
+            {
+              "title": "Cláusula específica",
+              "description": "¿Qué dice la cláusula de vigencia del contrato más reciente?"
+            },
+            {
+              "title": "Documentos del inmueble",
+              "description": "Lista todos los documentos disponibles del inmueble CJ03"
+            },
+            {
+              "title": "Ayuda",
+              "description": "¿Qué tipos de preguntas puedo hacerte?"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "roca-knowledge-source",
+  "description": "Wrapper sobre el indice roca-contracts-v1 para Agentic Retrieval",
+  "kind": "searchIndex",
+  "encryptionKey": null,
+  "searchIndexParameters": {
+    "searchIndexName": "roca-contracts-v1",
+    "searchFields": [],
+    "semanticConfigurationName": "default-semantic-config",
+    "sourceDataFields": [
+      {
+        "name": "content_hash"
+      },
+      {
+        "name": "nombre_archivo"
+      },
+      {
+        "name": "sharepoint_url"
+      },
+      {
+        "name": "folder_path"
+      },
+      {
+        "name": "doc_type"
+      },
+      {
+        "name": "inmueble_codigo_principal"
+      },
+      {
+        "name": "inmueble_codigos"
+      },
+      {
+        "name": "content"
+      }
+    ]
+  }
+}

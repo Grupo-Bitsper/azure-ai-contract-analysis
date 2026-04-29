@@ -38,6 +38,13 @@ function_app/.python_packages/
 
 # Backups
 *.full
+*.bak
+*.bak_*
+
+# Azure Functions local dev artifacts (no commit)
+local.settings.json
+function_app/ingest/.python_packages/
+function_app/ingest/*.zip
 
 # Project-specific
 output/
@@ -46,7 +53,6 @@ output/
 *.jpg
 *.jpeg
 contratosdemo_real/
-FASE_4A_DISCOVERY_REPORT.md.bak
 
 # Claude Code
 .claude/

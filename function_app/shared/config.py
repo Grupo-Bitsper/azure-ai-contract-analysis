@@ -58,7 +58,6 @@ EMBED_BATCH_SIZE = int(_opt("EMBED_BATCH_SIZE", "16"))
 
 # --- SharePoint sites to sync ---
 SP_SITES = [
-    "ROCA-IAInmuebles",
     "ROCAIA-INMUEBLESV2",
 ]
 

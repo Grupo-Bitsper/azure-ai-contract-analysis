@@ -2,7 +2,7 @@
   "version": "2.0",
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
-    "version": "[4.*, 5.0.0)"
+    "version": "[4.30.0, 5.0.0)"
   },
   "logging": {
     "applicationInsights": {
@@ -17,17 +17,26 @@
       "Function.timer_acl_refresh": "Information",
       "Function.timer_full_resync": "Information",
       "Function.http_manual_process": "Information",
-      "Host.Aggregator": "Warning"
+      "Host.Aggregator": "Warning",
+      "DurableTask.Core": "Warning",
+      "DurableTask.AzureStorage": "Warning"
     }
   },
   "extensions": {
     "durableTask": {
       "hubName": "RocaCopilotHub",
+      "defaultVersion": "1.0.0",
+      "versionMatchStrategy": "CurrentOrOlder",
+      "versionFailureStrategy": "Reject",
       "storageProvider": {
         "connectionStringName": "AzureWebJobsStorage"
       },
       "maxConcurrentActivityFunctions": 1,
-      "maxConcurrentOrchestratorFunctions": 1
+      "maxConcurrentOrchestratorFunctions": 1,
+      "tracing": {
+        "distributedTracingEnabled": true,
+        "version": "V2"
+      }
     }
   },
   "functionTimeout": "00:10:00"

@@ -1,27 +1,29 @@
 # ROCA Copilot — Plan de Implementación
 
-**Estado**: Fases 1–7 COMPLETAS + Hardening de pipeline 2026-04-17. El agente responde en Teams. ✅
-**Última actualización**: 2026-04-17
+**Estado**: Fases 1–9 COMPLETAS y en producción. El agente responde correctamente en Teams ✅, incluyendo queries de detalle (firmantes, notaría, fechas) gracias a Agentic Retrieval con MCP (Fase 8, 2026-04-22). Pipeline de ingesta migrado a queue-based con cutover validado y 84 huérfanos reconciliados (Fase 9, 2026-04-29).
+**Última actualización**: 2026-04-29
 **Dueño técnico**: Abraham Martínez (`admin.copilot@rocadesarrollos.com`)
 **Stakeholders producto**: Moisés Rodriguez, Omar Villa (ROCA)
 **Cuenta Azure**: FES Azure Plan (`fea67fdf-9603-4c86-a590-cd12390b7efd`) / Tenant ROCA TEAM SA DE CV (`9015a126-356b-4c63-9d1f-d2138ca83176`)
 
 ---
 
-## 📍 Estado actual del proyecto (2026-04-16)
+## 📍 Estado actual del proyecto (2026-04-29)
 
 ### Progreso por fase
 
-| Fase                                            | Estado                    | Fecha cierre | Notas                                                                                                                                                                                                      |
-| ----------------------------------------------- | ------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Fase 1** — Setup base                         | ✅ Completa               | 2026-04-14   | Hardening aplicado 2026-04-15                                                                                                                                                                              |
-| **Fase 2** — Permisos SharePoint + Graph        | ✅ Completa               | 2026-04-15   | End-to-end validado con client credentials                                                                                                                                                                 |
-| **Fase 3** — Infraestructura de datos           | ✅ Completa\*             | 2026-04-15   | \*Budget diferido a deuda técnica con equipo ROCA                                                                                                                                                          |
-| **Fase 4A** — Discovery de schema               | ✅ Completa (ampliada v2) | 2026-04-15   | 45 PDFs totales / 38 únicos por hash, 17 tipos detectados, schema v2 con 35 campos                                                                                                                         |
-| **Fase 4B** — Ingesta + validación              | ✅ Completa               | 2026-04-15   | Índice `roca-contracts-v1` con integrated vectorizer, agente `roca-copilot` con gpt-4.1-mini, 4/4 queries validadas end-to-end                                                                             |
-| **Fase 5** — Automatización (Durable Functions) | ✅ Completa               | 2026-04-15   | Pivot de Logic App Standard → Azure Durable Functions (cuota WS1=0 + SP connector no soporta app-only). Pipeline corriendo 24/7 en `func-roca-copilot-sync` (Y1 Consumption, $0/mes). 1370 chunks en prod. |
-| **Fase 6** — Validar agente en Playground       | ✅ Completa               | 2026-04-15   | Agente validado con queries reales (contratos RA03, licencias, RFC). `build_security_filter` pendiente como deuda.                                                                                         |
-| **Fase 7** — Publicación a Teams                | ✅ Completa               | 2026-04-16   | Bot funcional en Teams. Middleware Python en Function App. Foundry Responses API conectado. Root cause resuelto: `BOT_APP_PASSWORD` tenía warning del CLI pegado.                                          |
+| Fase                                                    | Estado      | Fecha cierre | Notas                                                                                                                                                                                                                                          |
+| ------------------------------------------------------- | ----------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Fase 1** — Setup base                                 | ✅ Completa | 2026-04-14   | Hardening aplicado 2026-04-15                                                                                                                                                                                                                  |
+| **Fase 2** — Permisos SharePoint + Graph                | ✅ Completa | 2026-04-15   | End-to-end validado con client credentials                                                                                                                                                                                                     |
+| **Fase 3** — Infraestructura de datos                   | ✅ Completa | 2026-04-15   | Budget diferido a deuda técnica con equipo ROCA                                                                                                                                                                                                |
+| **Fase 4A** — Discovery de schema                       | ✅ Completa | 2026-04-15   | 45 PDFs totales / 38 únicos por hash, 17 tipos detectados, schema v2 con 35 campos                                                                                                                                                             |
+| **Fase 4B** — Ingesta + validación                      | ✅ Completa | 2026-04-15   | Índice `roca-contracts-v1` con integrated vectorizer, agente `roca-copilot` con gpt-4.1-mini, 4/4 queries validadas end-to-end                                                                                                                 |
+| **Fase 5** — Automatización (Durable Functions, legacy) | ✅ Reemplazada | 2026-04-15   | Pipeline original con `func-roca-copilot-sync`. Reemplazado por Fase 9 (queue-based) tras incidente Non-Det 2026-04-19. Timers `isDisabled: true`. Código activo solo para el bot (`http_bot_messages`).                                       |
+| **Fase 6** — Validar agente en Playground               | ✅ Completa | 2026-04-15   | Agente validado con queries reales. `build_security_filter` pendiente como deuda                                                                                                                                                               |
+| **Fase 7** — Publicación a Teams                        | ✅ Completa | 2026-04-16   | Bot funcional en Teams. Middleware Python en Function App. Foundry Responses API conectado                                                                                                                                                     |
+| **Fase 8** — Agentic Retrieval con MCP                  | ✅ Completa | 2026-04-22   | Knowledge base + knowledge source sobre `roca-contracts-v1`, project connection MCP, agente `roca-copilot:11` con tools `[azure_ai_search, mcp]`. Resuelve el caso RA03 (detalles específicos del contenido). **Detalle completo en sección 10** |
+| **Fase 9** — Pipeline queue-based + cutover             | ✅ Completa | 2026-04-29   | Nueva Function App `func-roca-ingest-prod` con 10 handlers queue/timer. Cutover ejecutado 2026-04-28 21:05 UTC. 84 huérfanos reconciliados al prod 2026-04-29. **Detalle completo en sección 11**                                              |
 
 ### Inventario de recursos creados (Fases 1–7)
 
@@ -31,18 +33,22 @@
 | ----------------------------------------- | ------------------------------------- | ------------ | -------------- | ------ | ----------------------------------------------------- |
 | Key Vault RBAC + purge protection         | `kv-roca-copilot-prod`                | eastus2      | —              | F2     | ~$0.03/10K ops                                        |
 | AI Search **Basic** + Semantic Std        | `srch-roca-copilot-prod`              | **eastus** ⚠ | `c9181743-...` | F3     | **~$75/mes**                                          |
-| Storage V2 LRS Hot                        | `strocacopilotprod`                   | eastus2      | `c39ba7f1-...` | F3     | ~$1-2/mes                                             |
+| Storage V2 LRS Hot (bot + ocr cache)      | `strocacopilotprod`                   | eastus2      | `c39ba7f1-...` | F3     | ~$1-2/mes                                             |
 | Container (storage)                       | `ocr-raw`                             | —            | —              | F3     | incluido                                              |
-| Storage Queue (DLQ)                       | `roca-dlq`                            | —            | —              | F5     | incluido                                              |
+| **Storage account ingest pipeline**       | `stroingest`                          | eastus2      | —              | **F9** | **~$1/mes** (queues + tables)                         |
+| 6 queues ingest (3 prod + 3 poison)       | `delta-sync-queue`, `enumeration-queue`, `file-process-queue` + poison | — | — | F9 | incluido       |
+| Tables ingest (state)                     | `deltatokens`, `folderpaths`, `itemsindex` | —      | —              | F9     | incluido                                              |
 | Log Analytics                             | `log-roca-copilot-prod`               | eastus2      | —              | F3     | ~$2-5/mes                                             |
 | Application Insights (workspace-based)    | `appi-roca-copilot-prod`              | eastus2      | —              | F3     | incluido en Log Analytics                             |
 | Action Group (email)                      | `ag-roca-copilot-prod`                | global       | —              | F3     | $0                                                    |
-| **Function App** (Durable Functions)      | `func-roca-copilot-sync`              | eastus2      | `0d1b9174-...` | **F5** | **$0** (Y1 Consumption free tier)                     |
-| App Service Plan (auto-created)           | `EastUS2LinuxDynamicPlan`             | eastus2      | —              | F5     | incluido                                              |
-| Diagnostic Setting                        | `func-diag` → `log-roca-copilot-prod` | —            | —              | F5     | incluido                                              |
-| Application Insights (duplicado, sin uso) | `func-roca-copilot-sync`              | eastus2      | —              | F5     | $0 (sin tráfico, redirigido a appi-roca-copilot-prod) |
-| Logic App probe (residual)                | `logic-roca-quota-probe`              | eastus2      | —              | F5     | $0 (sin ejecuciones)                                  |
+| **Function App bot (Durable, legacy)**    | `func-roca-copilot-sync`              | eastus2      | `0d1b9174-...` | F5     | **$0** Y1 Consumption. **Solo bot activo** — timers `isDisabled: true` post-F9 |
+| **Function App ingest (queue-based)**     | `func-roca-ingest-prod`               | eastus2      | `a8bd493e-...` | **F9** | **$0** Flex Consumption (10 handlers: 3 queue workers, 3 HTTP, 3 timer, 1 webhook) |
+| App Service Plan auto                     | `EastUS2LinuxDynamicPlan`             | eastus2      | —              | F5     | incluido                                              |
+| App Service Plan ingest                   | `ASP-rgrocacopilotprod-d9c3`          | eastus2      | —              | F9     | incluido                                              |
+| Event Grid Topic (legacy, abandonado)     | `evgt-roca-graph`                     | eastus2      | —              | F9 plan B descartado | $0 (sin subscriptions) |
+| Logic App probe (residual)                | `logic-roca-quota-probe`              | eastus2      | —              | F5     | $0                                                    |
 | Azure Bot Service                         | `roca-copilot-bot`                    | global       | —              | **F7** | **$0** (F0 free tier)                                 |
+| 4 alertas Log Analytics                   | `roca-orchestration-failed`, `roca-non-deterministic-workflow`, `roca-dlq-writes`, `roca-full-resync-triggered` | — | — | F5/F9 | incluido |
 
 ⚠ `srch-roca-copilot-prod` vive en `eastus` (no eastus2) porque eastus2 retornó `InsufficientResourcesAvailable` para SKU Basic el 2026-04-15. Mismo RG, latencia cross-region irrelevante.
 
@@ -71,7 +77,19 @@
 - `gpt-5-mini` fue desplegado y luego eliminado del account por conflicto de capacity al desplegar gpt-4o-mini/gpt-4.1-mini (D-9)
 - **Estado actual**: `gpt-4.1-mini` es el ÚNICO modelo chat activo para TODO (agente + pipeline de extracción). `max_completion_tokens=4000` (NO 12000 — gpt-4.1-mini no es reasoning model)
 
-**Foundry project MI** (`rocadesarrollo`): principalId `8117b1a5-5225-4d9e-9071-ee9aa90b7eb0`, permisos Graph `GroupMember.Read.All` + `User.Read.All` (asignados, pendientes de validación runtime en Fase 6).
+**Foundry project MI** (`rocadesarrollo`): principalId `8117b1a5-5225-4d9e-9071-ee9aa90b7eb0`, permisos Graph `GroupMember.Read.All` + `User.Read.All` (asignados, pendientes de validación runtime en Fase 6). **Fase 8** agregó `Search Index Data Reader` sobre `srch-roca-copilot-prod` (necesario para que la knowledge base use MI auth contra el índice).
+
+**Recursos Fase 8 — Agentic Retrieval (creados 2026-04-22)**:
+
+| Recurso | Identificador | Notas |
+| --- | --- | --- |
+| Knowledge Source (AI Search) | `roca-knowledge-source` | Wrapper sobre el índice `roca-contracts-v1`. Expone 8 sourceDataFields incluyendo `nombre_archivo`, `sharepoint_url`, `inmueble_codigo_principal`, `content` |
+| Knowledge Base (AI Search) | `roca-knowledge-base` | LLM `gpt-4.1-mini` para query planning, `outputMode=answerSynthesis`, `retrievalReasoningEffort=low` |
+| Project Connection (Foundry) | `roca-knowledge-mcp` | Tipo `RemoteTool` + auth `ProjectManagedIdentity`, target `srch-…/knowledgebases/roca-knowledge-base/mcp`, audience `https://search.azure.com/` |
+| Foundry Agent Version | `roca-copilot:11` | Tools `[azure_ai_search, mcp(knowledge_base_retrieve)]`. `agent_endpoint.version_selector` → 100% a v11 |
+| RBAC adicional | `Cognitive Services OpenAI User` para search MI sobre `rocadesarrollo-resource` | Necesario para que el knowledge base llame al LLM de query planning |
+
+**Costo delta Fase 8**: ~$0-5/mes (free tier 50M agentic tokens cubre uso ROCA típico de ~17M/mes).
 
 **Archivos del repo**:
 
@@ -99,56 +117,218 @@
 | D-17 | `build_security_filter` custom function tool         | ⏸ Pendiente | 🟠 Alta   | Fase 6.1b. Necesario para que el agente filtre resultados por usuario (cada usuario solo ve docs a los que tiene permiso en SharePoint). **Obligatorio antes de exponer el agente a usuarios que NO deben ver todos los docs.**                                                                                                                                                                              |
 | D-18 | `BOT_APP_PASSWORD` debe moverse a Key Vault          | ⏸ Abierta   | 🟡 Media  | Actualmente el secret vive en App Settings (texto plano). Moverlo a KV (`kv-roca-copilot-prod`) y referenciar desde App Settings como `@Microsoft.KeyVault(SecretUri=...)` elimina el riesgo de que el CLI corrompa el valor.                                                                                                                                                                                |
 | D-19 | Logs de debug del bot en producción                  | ⏸ Abierta   | 🟢 Baja   | `function_app.py` y `shared/bot.py` tienen logs detallados (`[BOT]`, `[BOT-HTTP]`, `[BOT-REPLY]`) que generan ruido en Application Insights. Reducir nivel a DEBUG y filtrar en queries KQL una vez el bot esté estable en producción.                                                                                                                                                                       |
-| D-20 | Pipeline `process_item_activity` OOM (exit code 137) | ✅ Parcial  | 🟡 Media  | PDFs grandes ya se dividen en chunks de 50 páginas via `pypdf` antes de enviarse a Document Intelligence (fix 2026-04-17). Reduce drásticamente el riesgo de OOM y timeout. Si persiste en PDFs extremadamente pesados, considerar separar bot y pipeline en dos Function Apps distintas.                                                                                                                   |
-| D-21 | Delta token avanza aunque haya errores en el batch   | ⏸ Abierta   | 🟡 Media  | Si el pipeline procesa 50 items y 48 fallan (ej: 429), el delta token se persiste y los 48 fallidos no se reprocesarán hasta el full_resync del domingo. Fix: mover `persist_delta_token_activity` a después de verificar que `errors == 0`. Mismo que D-14 pero renombrado con contexto adicional.                                                                                                          |
-| D-22 | Procesamiento fan-out por lotes para >500 items      | ⏸ Pendiente | 🟢 Baja   | `enumerate_all_items_activity` envía todos los items de golpe a `task_all()`. Para el volumen actual de ROCA (<500 PDFs) no es problema. Si escalan a miles de archivos, implementar lotes de 100 en 100 en el orchestrator para evitar payload gigante en el historial de Durable Functions.                                                                                                               |
+| D-20 | Pipeline `process_item_activity` OOM (exit code 137) | ✅ Resuelta | —         | Resuelto en F9: bot y pipeline ya están separados en 2 Function Apps distintas (`func-roca-copilot-sync` solo bot, `func-roca-ingest-prod` solo ingest). Preflight `>80MB → skip` + Document Intelligence split por `pypdf` siguen activos en el handler nuevo.                                                                                                                                              |
+| D-21 | Delta token avanza aunque haya errores en el batch   | ✅ Obsoleta | —         | Pipeline Durable reemplazado por queue-based en F9. La nueva pipeline retiene mensajes en `file-process-queue` con `maxDequeueCount=5` antes de mandar a poison. El delta token solo avanza tras `delta_worker` enquoue exitoso.                                                                                                                                                                              |
+| D-22 | Procesamiento fan-out por lotes para >500 items      | ✅ Obsoleta | —         | Pipeline Durable reemplazado en F9. Queue-based scalea naturalmente con `batchSize=4` y `maxDequeueCount=5`. Sin payload gigante en historial.                                                                                                                                                                                                                                                                  |
+| D-23 | `http_full_resync` HTTP endpoint devuelve 404        | ⏸ Abierta   | 🟢 Baja   | Verificado 2026-04-29: POST `/api/admin/full-resync` → 404 aunque la función está registrada en `/admin/functions`. Otros 3 HTTP endpoints OK (status, read_document, webhook/graph). Probable conflict con reserved path `/api/admin/*` o cache de routes. **Workaround:** encolar mensajes manualmente a `enumeration-queue` con `az storage message put` (validado 2026-04-29).                              |
+| D-24 | `roca-contracts-v1-shadow` index zombie              | ⏸ Cleanup   | 🟢 Baja   | Shadow index quedó sin uso post-cutover (F9). Tiene 8,851 docs sin vectores (`vectorIndexSize: 0` por bug del rehydrate script). Cero costo extra ($75/mes Basic ya pagado). Borrar después de 1-2 semanas de validación: `curl -X DELETE -H "api-key: $KEY" .../indexes/roca-contracts-v1-shadow?api-version=2024-07-01`                                                                                       |
+| D-25 | Bug en `scripts/rehydrate_shadow_from_prod.py:195`   | 📝 Documentado | 🟢 Baja | El script hace `prod.search(search_text="*")` SIN `select=` explícito → SDK omite campos `retrievable: false` (incluido `content_vector`). El upload al shadow incluyó `content_vector: None` para todos los 9,038 chunks → vectorIndexSize:0. **No fixear** — el script ya no debe correr nunca más; F9 reemplazó el patrón completo. Documentado por si alguien intenta replicar.                          |
+| D-26 | `acta-entrega-trabajo.pdf` (0 bytes) en SP            | ⏸ Cliente  | 🟢 Baja   | Detectado en F9 reconciliación: drive_item_id `0153D4Q72K3KZCBOGIIZBL5GAMLNJB` en SP tiene size=0 → Document Intelligence falla → 5 retries → poison queue. **Cliente debe re-subir o borrar el archivo.**                                                                                                                                                                                                  |
 
 ---
 
-## ⚙️ Operaciones — Cómo funciona el pipeline en producción
+## ⚙️ Operaciones — Cómo funciona el pipeline en producción (F9 — queue-based)
 
 ### Flujo normal (steady state)
 
 ```
-Cada 5 min:   timer_sync_delta
-               └─ resolve_drive_activity (obtiene site_id/drive_id vía Graph)
-               └─ get_delta_changes_activity (delta query, solo archivos cambiados)
-               └─ process_item_activity × N (OCR → extracción → embeddings → upsert)
-               └─ persist_delta_token_activity (guarda el cursor para el siguiente ciclo)
+Cada 5 min: timer_sync_sharepoint (en func-roca-ingest-prod)
+             └─ Por cada drive: GET delta link desde deltatokens table
+             └─ Graph delta query → items modificados/borrados/renombrados/movidos
+             └─ Encola UN mensaje por item al delta-sync-queue
+             └─ Persiste new_delta_link a deltatokens table
 
-Cada 1 hora:  timer_acl_refresh
-               └─ refresh_acls_activity (re-lee permisos de cada doc en el índice)
+Trigger queue: delta_worker (consume delta-sync-queue)
+             └─ Clasifica el evento: upsert / rename / move / delete / folder_rename
+             └─ Encola al file-process-queue con action=<tipo>
 
-Cada domingo 03:00 UTC: timer_full_resync
-               └─ full_resync_orchestrator (enumera TODOS los archivos, procesa los nuevos/cambiados)
-               └─ Los docs con el mismo content_hash se saltean (idempotente)
+Trigger queue: file_worker (consume file-process-queue, batchSize=4)
+             └─ Dispatcher por action:
+                  upsert         → handle_upsert: download + dedup_check (content_hash) + OCR + extract + chunk + embed + upsert al índice + crea entry en itemsindex
+                  rename         → handle_rename: lookup itemsindex → patch_document_fields(nombre_archivo, sharepoint_url)
+                  move           → handle_move: lookup itemsindex → patch_document_fields(folder_path)
+                  delete         → handle_delete: lookup itemsindex → delete_by_content_hash + cleanup itemsindex
+                  folder_rename  → fan-out a N moves vía itemsindex.list_descendants
+             └─ maxDequeueCount=5 → poison queue tras fallos
+
+Cada 3 días 03:00 UTC: subscription_renewer
+             └─ Crea + renueva Graph subscriptions para webhook/graph
+             └─ Expiration target = now + 60h
+
+Cada hora: timer_purger
+             └─ Reconcilia índice prod vs SharePoint
+             └─ Detecta huérfanos (items en índice que ya no están en SP) → batch DELETE
+             └─ Guardrails: skip si itemsindex vacío o si >50% sería huérfano
 ```
 
-El delta token vive como blob en `strocacopilotprod/ocr-raw/delta-tokens/{drive_id}.token`. Si se pierde, el próximo ciclo inicia un delta desde cero (equivalente a un full_resync incremental — seguro, solo más lento).
+**Configuración crítica** (en `func-roca-ingest-prod` app settings):
+
+```
+TARGET_INDEX_NAME=roca-contracts-v1   ← cambiado en cutover 2026-04-28 21:05 UTC
+                                       ← antes apuntaba a roca-contracts-v1-shadow (legacy F9 day 3)
+SP_HOSTNAME=rocadesarrollos1.sharepoint.com
+SP_APP_ID=18884cef-ace3-4899-9a54-be7eb66587b7
+DOC_INTEL_MODEL=prebuilt-layout
+EMBED_DEPLOYMENT=text-embedding-3-small
+DISCOVERY_DEPLOYMENT=gpt-4.1-mini
+PREFLIGHT_MAX_SIZE_MB=80              ← skip docs grandes para evitar OOM
+MAX_ENUM_ITEMS=10000
+INGEST_STORAGE_ACCOUNT=stroingest
+DELTA_SYNC_QUEUE=delta-sync-queue
+FILE_PROCESS_QUEUE=file-process-queue
+ENUMERATION_QUEUE=enumeration-queue
+TABLE_DELTATOKENS=deltatokens
+TABLE_FOLDERPATHS=folderpaths
+TABLE_ITEMSINDEX=itemsindex
+```
 
 ### Cómo subir un documento nuevo y que se indexe
 
 1. Subir el PDF a cualquiera de los dos sites de SharePoint (`ROCA-IAInmuebles` o `ROCAIA-INMUEBLESV2`)
 2. Esperar máximo **5 minutos**
-3. El `timer_sync_delta` lo detecta en la delta query y dispara `process_item_activity`
-4. El doc pasa por OCR → `gpt-4.1-mini` extrae metadata → embeddings → upsert al índice
-5. El agente en Foundry ya puede responder preguntas sobre ese doc
+3. `timer_sync_sharepoint` detecta el cambio en delta query → encola en `delta-sync-queue`
+4. `delta_worker` clasifica como upsert → encola en `file-process-queue`
+5. `file_worker` ejecuta `handle_upsert`: download → OCR → embed → indexa al prod
+6. El agente en Foundry y bot Teams ya pueden responder preguntas sobre ese doc
 
-### Estado del índice (2026-04-17)
+**Latencia SLA:** upload/edit/rename/move ≤ 5 min; delete ≤ 1 hora (timer_purger fallback).
+
+### Estado del índice (2026-04-29 — post-Fase 9 reconciliación)
 
 | Métrica                                                  | Valor                                                        |
 | -------------------------------------------------------- | ------------------------------------------------------------ |
-| Chunks en `roca-contracts-v1`                            | ~5000+ (en crecimiento — full_resync activo)                 |
-| Chunks originales cargados manualmente (Fase 4B)         | 1370                                                         |
-| Chunks nuevos tras fix de embedding (2026-04-17)         | +3600+ y contando                                            |
-| Inmuebles con código ROCA indexado                       | 32 códigos únicos (GU01A 180, RA03 227, RE05 315, CJ03 195…) |
+| Chunks en `roca-contracts-v1` (PROD)                     | **11,232** (creció +2,194 en F9 reconciliación)              |
+| Storage size                                             | 323 MB                                                       |
+| Vector index size                                        | **87 MB** (era 58 MB pre-F9)                                 |
+| Chunks únicos por archivo (chunk_id=0)                   | 1,114 archivos únicos                                        |
+| Inmuebles con código ROCA indexado                       | 32+ códigos únicos                                           |
 | Sites sincronizados                                      | `ROCA-IAInmuebles` + `ROCAIA-INMUEBLESV2`                    |
+| Graph subscriptions activas                              | 2 (una por drive, expiran cada 2.5 días, auto-renueva)       |
+| Delta tokens activos                                     | 2 (uno por drive en `deltatokens` table)                     |
+| `itemsindex` table entries                               | 1,588 (drive_id+drive_item_id → content_hash mapping)        |
+
+**Índices secundarios (no usados en producción):**
+- `roca-contracts-v1-shadow` — 8,851 docs sin vectores (zombie post-F9 cutover, D-24)
+- `roca-contracts-v1-staging` — 2,019 docs (testbed)
+- `roca-contracts-smoke` — 162 docs (smoke tests F4B)
 
 ---
 
 ## 🔧 Runbook de incidentes del pipeline
 
-### Incidente 2026-04-16 — Pipeline stopped / queue bloqueada
+### Runbook activo (post-Fase 9 queue-based)
+
+#### Force re-enumeration de un drive (workaround para D-23 http_full_resync 404)
+
+```bash
+# Encolar mensaje directo a enumeration-queue. El enumeration_worker enumera
+# el drive completo via Graph y encola UN upsert por archivo a file-process-queue.
+# El handle_upsert hace dedup por content_hash → solo procesa los faltantes.
+# Idempotente: correr N veces produce el mismo resultado.
+
+source venv/bin/activate
+python3 <<'PY'
+import json, uuid, base64, subprocess
+from azure.storage.queue import QueueClient
+key = subprocess.check_output(["az","storage","account","keys","list",
+  "--account-name","stroingest","--resource-group","rg-roca-copilot-prod",
+  "--query","[0].value","-o","tsv"], text=True).strip()
+conn = f"DefaultEndpointsProtocol=https;AccountName=stroingest;AccountKey={key};EndpointSuffix=core.windows.net"
+qc = QueueClient.from_connection_string(conn, "enumeration-queue")
+
+# Site IDs (verificados en /api/status)
+DRIVES = [
+    {"site_id": "rocadesarrollos1.sharepoint.com,1fc5e500-0a8a-4631-9037-f83195ac7617,fb4f41ac-732b-4b9d-ab14-24dd18f3cbb9",
+     "drive_id": "b!AOXFH4oKMUaQN_gxlax2F6xBT_src51LqxQk3Rjzy7lxm5V1kkkhS7e5-pH5h276"},
+    {"site_id": "rocadesarrollos1.sharepoint.com,bb6f7d7f-c5ff-4f68-8a6c-05775b3661bd,7ca4e7eb-b066-411d-b826-f8f63a6b23e0",
+     "drive_id": "b!f31vu__FaE-KbAV3WzZhvevnpHxmsB1BuCb49jprI-C9M2JHU1-MRJFrBHHF7EV0"},
+]
+cid = str(uuid.uuid4())
+for d in DRIVES:
+    payload = {**d, "reason": "manual_resync", "correlation_id": cid,
+               "target_index": "roca-contracts-v1"}
+    qc.send_message(base64.b64encode(json.dumps(payload).encode()).decode())
+print("done, correlation_id:", cid)
+PY
+```
+
+#### Verificar estado del pipeline
+
+```bash
+INGEST_KEY=$(az functionapp keys list --name func-roca-ingest-prod \
+  --resource-group rg-roca-copilot-prod --query "masterKey" -o tsv)
+curl -sS "https://func-roca-ingest-prod.azurewebsites.net/api/status?code=$INGEST_KEY" | python3 -m json.tool
+```
+
+Devuelve: `target_index`, `queue_depths` por queue, `delta_tokens` con `last_sync_utc` y `subscription_expires_utc`.
+
+#### Limpiar poison queue tras incidente
+
+```bash
+# Inspeccionar primero qué hay en poison
+source venv/bin/activate
+python3 <<'PY'
+import subprocess, base64, json
+from azure.storage.queue import QueueClient
+key = subprocess.check_output(["az","storage","account","keys","list",
+  "--account-name","stroingest","--resource-group","rg-roca-copilot-prod",
+  "--query","[0].value","-o","tsv"], text=True).strip()
+conn = f"DefaultEndpointsProtocol=https;AccountName=stroingest;AccountKey={key};EndpointSuffix=core.windows.net"
+qc = QueueClient.from_connection_string(conn, "file-process-queue-poison")
+for m in qc.peek_messages(max_messages=10):
+    p = json.loads(base64.b64decode(m.content).decode())
+    print(f"  action={p.get('action')} name={p.get('name','?')[:60]}")
+# qc.clear_messages()  # descomentar para limpiar
+PY
+```
+
+#### Cambiar TARGET_INDEX_NAME (cutover entre índices)
+
+```bash
+# Riesgo: el módulo Python en memoria cachea el valor — restart obligatorio
+az functionapp config appsettings set --name func-roca-ingest-prod \
+  --resource-group rg-roca-copilot-prod \
+  --settings TARGET_INDEX_NAME=<nombre-índice>
+az functionapp restart --name func-roca-ingest-prod --resource-group rg-roca-copilot-prod
+sleep 45  # cold start
+# Verificar
+curl -sS "https://func-roca-ingest-prod.azurewebsites.net/api/status?code=$INGEST_KEY" | python3 -c "import json,sys;print(json.load(sys.stdin)['target_index'])"
+```
+
+---
+
+### Histórico de incidentes pre-F9 (legacy Durable Functions, info de referencia)
+
+Los siguientes incidentes ocurrieron en el pipeline **legacy F5 Durable Functions** (`func-roca-copilot-sync`). Ese pipeline fue **reemplazado completamente por F9 queue-based** (`func-roca-ingest-prod`). Sus timers están `isDisabled: true`. Se mantienen aquí solo como referencia histórica de las lecciones aprendidas que motivaron la migración a queue-based.
+
+| Fecha | Incidente | Causa raíz | Resolución |
+|---|---|---|---|
+| 2026-04-16 | Pipeline stopped, queue bloqueada por mensajes stale del `full_resync` | `az functionapp stop` mid-orchestration → mensajes work-items zombi referenciando blobs expirados | Stop+vaciar queue+terminate orchestrations+restart. Lección: nunca stop con orchestrations Running |
+| 2026-04-17 | Solo 5 inmuebles indexados, 95% de docs en DLQ | Deployment `text-embedding-3-small` corrupto (`OperationNotSupported` aunque portal mostraba `Succeeded`) | Delete+recreate deployment + clear DLQ + trigger full_resync. Bug recurrente del embedding en Azure OpenAI |
+| 2026-04-19 → 04-20 | Pipeline caído ~26h por non-deterministic workflow | Deploy sobre orchestration `Running` + bug `_is_compatible_version("")` con raise antes de yield | Orchestration versioning GA (Q1 2026) activado + `predeploy_gate.sh` obligatorio + retry policies + activity timeouts via durable timer |
+| 2026-04-22 → 04-23 | Cross-contamination entre inmuebles + alucinación de partes contractuales | System prompt v11 sin reglas de verificación folder_path | Iteración v12-v15 del system prompt. 12/14 PASS golden set. Migración a Agentic Retrieval (F8) resolvió "doc found but can't answer details" |
+
+**Fixes permanentes que sobreviven post-F9** (aplican al sistema actual aunque vengan del pipeline legacy):
+
+- Document Intelligence split por páginas (50 págs/batch via `pypdf`) en `shared/docintel_client.py`
+- Preflight filter PDFs >80 MB (skip + log)
+- Sincronización de borrados SharePoint → AI Search por `content_hash` (no `sp_list_item_id`)
+- `inmueble_codigo_principal` ordering: códigos ROCA primero, catastrales al final
+- Bug de vigencia: `es_vigente=None` cuando falta `fecha_vencimiento`, `_compute_end_from_duration()` para "36 meses"
+
+---
+
+### REGLAS DE OPERACIÓN (sistema queue-based actual)
+
+1. **NUNCA modificar `TARGET_INDEX_NAME` sin restart de la Function App**. El módulo Python en memoria cachea el valor; sin restart sigue escribiendo al índice viejo.
+2. **NUNCA borrar `roca-contracts-v1` (prod)**. Hacer cambios siempre via re-enumeration sobre el mismo índice o via cutover a un nuevo índice (cambiar TARGET).
+3. **NUNCA correr `scripts/rehydrate_shadow_from_prod.py`**. Tiene un bug conocido (D-25) que copia docs sin vectores. Si necesitas inicializar un índice desde cero, usa el flujo de enumeration_worker normal.
+4. **SIEMPRE verificar `/api/status` post-deploy** del Function App ingest. `target_index` debe ser `roca-contracts-v1`, queues en 0 o cifras razonables.
+5. **NUNCA lanzar full re-enumeration sin verificar dedup**. El `handle_upsert` SÍ tiene dedup por `content_hash`, así que es seguro encolar enumeration para ambos drives — los archivos sin cambios reales se saltan instantáneamente.
+
+---
+
+#### Apéndice — Detalles del incidente 2026-04-16 (legacy)
 
 **Causa raíz**: stop manual de la Function App (`admin.copilot@rocadesarrollos.com`, 01:50 UTC) mientras el `full_resync` estaba a mitad de ejecución. Esto dejó cientos de mensajes `process_item_activity` en la queue `rocacopilothub-workitems` de storage. Al reiniciar, esos mensajes bloqueaban los nuevos mensajes del timer (los mensajes del 01:21 eran FIFO-primero y referenciaban blobs ya expirados → 404 → nadie avanzaba).
 
@@ -191,27 +371,11 @@ az functionapp restart --name func-roca-copilot-sync --resource-group rg-roca-co
 # que aparece una nueva instancia con runtimeStatus=Running y lastUpdatedTime avanzando
 ```
 
-**Verificación de que el pipeline está procesando**:
-
-```bash
-MASTER_KEY=$(az functionapp keys list \
-  --name func-roca-copilot-sync --resource-group rg-roca-copilot-prod \
-  --query "masterKey" -o tsv)
-curl -s "https://func-roca-copilot-sync.azurewebsites.net/runtime/webhooks/durabletask/instances?taskHub=RocaCopilotHub&connection=Storage&code=${MASTER_KEY}&top=5" | \
-  python3 -c "
-import json,sys
-for i in sorted(json.load(sys.stdin), key=lambda x: x['createdTime'], reverse=True)[:3]:
-    print(i['runtimeStatus'], '|', i['createdTime'][11:19], '->', i['lastUpdatedTime'][11:19])
-"
-```
-
-Si `lastUpdatedTime` avanza cada pocos segundos → pipeline procesando activamente. Si está congelado → investigar logs en Log Analytics (`log-roca-copilot-prod`).
-
-**Regla de operación**: **nunca hacer Stop de la Function App mientras hay orquestaciones Running**.
+**Lección aprendida**: nunca hacer `az functionapp stop` mientras hay orchestrations `Running`. Drain primero con timers deshabilitados.
 
 ---
 
-### Incidente 2026-04-17 — Embedding roto / solo 5 inmuebles indexados
+#### Apéndice — Detalles del incidente 2026-04-17 (legacy, embedding bug)
 
 **Causa raíz**: El deployment `text-embedding-3-small` (Standard, 100K TPM) retornaba `OperationNotSupported` para **todas** las versiones de API. El deployment aparecía como `Succeeded` en el portal pero era funcionalmente inoperante. Como consecuencia, ~95% de los documentos fallaban en el paso de vectorización y se enviaban al DLQ sin indexarse. Los 5 inmuebles que sí funcionaban tenían sus vectores de una carga manual previa (Fase 4B).
 
@@ -255,61 +419,8 @@ STORAGE_CONN=$(az functionapp config appsettings list \
   --query "[?name=='AzureWebJobsStorage'].value" -o tsv)
 az storage message clear --queue-name roca-dlq --connection-string "$STORAGE_CONN"
 
-# 5. Triggear full resync para re-indexar todos los documentos
-FUNC_KEY=$(az functionapp keys list \
-  --name func-roca-copilot-sync --resource-group rg-roca-copilot-prod \
-  --query "functionKeys.default" -o tsv)
-curl -s -X POST \
-  "https://func-roca-copilot-sync.azurewebsites.net/api/manual/process?code=$FUNC_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"event_type": "full_resync"}'
+# NOTA: el procedimiento legacy ya no aplica — pipeline reemplazado en F9
 ```
-
----
-
-### Hardening de pipeline aplicado 2026-04-17
-
-Los siguientes cambios fueron aplicados al pipeline para hacerlo más robusto. Todos viven en `function_app/` y se deployaron via `deploy.sh`.
-
-#### 1. Sincronización de borrados SharePoint → AI Search + Blob
-
-**Antes**: cuando un archivo era borrado en SharePoint, el delta timer lo ignoraba (`if item.get("deleted"): continue`). El chunk seguía en el índice indefinidamente y el agente podía responder con información de archivos que ya no existen.
-
-**Después**: `get_delta_changes_activity` captura los IDs de items borrados y los devuelve en una lista `deletions`. El `sync_delta_orchestrator` llama a `delete_item_activity` por cada borrado, que:
-1. Borra todos los chunks del índice de AI Search filtrando por `sp_list_item_id`
-2. Borra el PDF cacheado en Blob Storage (`ocr-raw/sample_discovery/{content_hash}.pdf`)
-
-El borrado es idempotente — si el archivo ya no existía en el índice, no falla.
-
-#### 2. PDFs grandes — split automático por páginas
-
-**Antes**: PDFs de más de ~50 páginas (ej: contratos de 99MB y 75MB de GU01A) causaban timeout a los 10 minutos en `process_item_activity`, enviándose al DLQ sin indexarse.
-
-**Después**: `docintel_client.analyze_pdf_bytes()` detecta automáticamente si el PDF tiene más de 50 páginas. Si es así, usa `pypdf` para dividirlo en partes de 50 páginas, procesa cada parte por separado con Document Intelligence, y concatena los resultados. Funciona para PDFs escaneados (imágenes) porque pypdf opera a nivel de estructura de páginas, no de contenido.
-
-Archivos modificados: `shared/docintel_client.py`, `requirements.txt` (agregado `pypdf==4.3.1`).
-
-#### 3. Límite de enumeración 500 → 5000
-
-**Antes**: `enumerate_all_items_activity` usaba `max_items=500`, lo que significaba que si SharePoint tenía más de 500 PDFs, los restantes nunca se indexaban.
-
-**Después**: `max_items=5000`. La paginación via `@odata.nextLink` ya existía en `graph_client.list_drive_items_recursive` — el límite era artificial.
-
-#### 4. Corrección de `inmueble_codigo_principal`
-
-**Antes**: el LLM de extracción a veces devolvía números catastrales (`002-247-009`, `4084/2020`) como primer elemento de `codigos_inmueble`, quedando como `inmueble_codigo_principal`. El agente no podía filtrar por código ROCA.
-
-**Después**: en `ingestion.py`, la lista se ordena antes de asignar el principal: los códigos puramente numéricos/catastrales se mueven al final. Además, el prompt de `extraction.py` fue actualizado para instruir al LLM a poner los códigos ROCA (`RA03`, `GU01A`, etc.) primero.
-
-#### 5. Agente `rocky-copilot` actualizado
-
-System prompt actualizado vía API de Foundry con:
-- Lista explícita de códigos ROCA conocidos
-- **Estrategia de búsqueda con fallback**: si búsqueda filtrada por código devuelve 0 resultados, reintenta con búsqueda semántica pura
-- `top_k` aumentado de 5 a 7 para cubrir contratos completos (típicamente 4-6 chunks)
-- AI Search tool reconectado a `roca-contracts-v1` con `vector_semantic_hybrid`
-
-**Regla de operación**: **nunca hacer Stop de la Function App mientras hay orquestaciones Running**. Si se necesita parar para deploy, usar `az functionapp stop` solo después de verificar que no hay instancias `Running` con historial reciente. El `deploy.sh` existente (que usa `WEBSITE_RUN_FROM_PACKAGE`) no requiere stop — hace swap de zip sin detener el host.
 
 ---
 
@@ -409,27 +520,64 @@ Gestión documental de inmuebles de ROCA (real estate). Inmuebles identificados 
  │                                                               │
  │   1. CloudAdapter valida JWT de Bot Framework (inbound)      │
  │   2. Extrae user_text del Activity                            │
- │   3. Llama ask_roca_copilot() → Foundry Responses API        │
- │   4. Obtiene token de salida vía requests.post (client creds) │
- │   5. POST respuesta a Teams serviceUrl/v3/conversations/...   │
+ │   3. Pre-search por código de inmueble (RA03, GU01A...)       │
+ │      en shared/bot.py — middleware con KNOWN_CODES            │
+ │   4. POST a /openai/v1/responses con agent_reference          │
+ │      (endpoint moderno — respeta agent_endpoint version_sel)  │
+ │   5. Obtiene token de salida vía requests.post (client creds) │
+ │   6. POST respuesta a Teams serviceUrl/v3/conversations/...   │
  └────────────────────────────┬──────────────────┬──────────────┘
                               │                  │
               Foundry API     │                  │ Token salida
                               ▼                  ▼
- ┌──────────────────────────┐  ┌──────────────────────────────┐
- │  Foundry Responses API   │  │ login.microsoftonline.com    │
- │  roca-copilot (agent)    │  │ /{tenant}/oauth2/v2.0/token  │
- │  gpt-4.1-mini            │  │ scope: api.botframework.com  │
- │  AzureAISearchTool       │  └──────────────────────────────┘
- └────────────────────────────┬─────────────────────────────────┘
-                              │
-                              ▼
+ ┌──────────────────────────────────┐  ┌──────────────────────────────┐
+ │  Foundry Agent Service           │  │ login.microsoftonline.com    │
+ │  POST /openai/v1/responses       │  │ /{tenant}/oauth2/v2.0/token  │
+ │  agent_reference: roca-copilot   │  │ scope: api.botframework.com  │
+ │                                  │  └──────────────────────────────┘
+ │  agent_endpoint.version_selector │
+ │  → 100% traffic a v11            │
+ │                                  │
+ │  Agent: roca-copilot:11          │
+ │  Modelo: gpt-4.1-mini            │
+ │  Tools:                          │
+ │   ├─ azure_ai_search             │  → descubrimiento ("¿qué docs hay?")
+ │   └─ mcp (knowledge_base_retrieve)│ → detalles (firmantes/notaría/etc)
+ └────────────┬─────────────────────┘
+              │ tool dispatch
+   ┌──────────┴──────────┐
+   ▼                     ▼
+ ┌──────────────┐   ┌──────────────────────────────────────────────┐
+ │ azure_ai_    │   │  Project Connection: roca-knowledge-mcp       │
+ │ search tool  │   │  RemoteTool · ProjectManagedIdentity          │
+ │ direct query │   │  target → AI Search MCP endpoint              │
+ │ (single-shot)│   └────────────────┬─────────────────────────────┘
+ │              │                    │ MCP
+ │              │                    ▼
+ │              │   ┌──────────────────────────────────────────────┐
+ │              │   │ Knowledge Base (Agentic Retrieval, preview)  │
+ │              │   │ roca-knowledge-base                           │
+ │              │   │ - LLM gpt-4.1-mini → query planning           │
+ │              │   │ - Descompone en subqueries paralelas          │
+ │              │   │ - Semantic reranking por subquery             │
+ │              │   │ - outputMode: answerSynthesis                 │
+ │              │   │ - reasoningEffort: low                        │
+ │              │   └────────────────┬─────────────────────────────┘
+ │              │                    │
+ │              │                    ▼
+ │              │   ┌──────────────────────────────────────────────┐
+ │              │   │ Knowledge Source: roca-knowledge-source       │
+ │              │   │ Wrapper sobre el índice (sin re-indexar)      │
+ │              │   └────────────────┬─────────────────────────────┘
+ └──────┬───────┘                    │
+        ▼                            ▼
  ┌──────────────────────────────────────────────────────────────┐
  │                    Azure AI Search (Basic tier)              │
- │              Índice: roca-contracts-v1 (35 campos)            │
+ │              Índice: roca-contracts-v1 (35 campos, 9038 chunks)│
  │  - Hybrid search (vector + keyword)                           │
- │  - Semantic ranking (GA en Basic)                             │
- │  - Spanish analyzer (es.microsoft)                            │
+ │  - Semantic ranking (Standard, default-semantic-config)       │
+ │  - Spanish analyzer (es.microsoft) + synonym map roca-synonyms│
+ │  - Scoring profile default: codigo-boost                      │
  │  - Integrated vectorizer (text-embedding-3-small)             │
  │  - Security trimming: group_ids + user_ids (hidden)           │
  │  - Schema en 3 capas + 3 campos SP identity refs              │
@@ -438,29 +586,36 @@ Gestión documental de inmuebles de ROCA (real estate). Inmuebles identificados 
                               │ (indexación automática cada 5 min)
                               │
  ┌──────────────────────────────────────────────────────────────┐
- │     Azure Durable Functions: func-roca-copilot-sync          │
- │     (Y1 Consumption Linux Python 3.11 — $0/mes)              │
+ │  Function App Ingest: func-roca-ingest-prod (F9, queue-based)│
+ │  (Flex Consumption Linux Python 3.11 — $0/mes free grant)    │
  │                                                               │
- │  Triggers:                                                    │
- │   ⏱ timer_sync_delta      cada 5 min (Graph delta query)     │
- │   ⏱ timer_acl_refresh     cada 1 hora (refresca permisos)    │
- │   ⏱ timer_full_resync     domingo 3am UTC (safety net)       │
- │   🔗 http_manual_process  POST on-demand (dispatch manual)   │
+ │  Timers:                                                      │
+ │   ⏱ timer_sync_sharepoint  cada 5 min (Graph delta → queue)  │
+ │   ⏱ subscription_renewer   cada 3 días (Graph subs renewal)  │
+ │   ⏱ timer_purger           cada 1 hora (orphan cleanup)      │
  │                                                               │
- │  Pipeline por archivo:                                        │
- │   1. Download via Graph API (app-only Sites.Selected)         │
- │   2. MD5 hash + dedup check contra índice                     │
- │   3. Extract ACLs (group_ids/user_ids via Graph permisos)     │
- │   4. Document Intelligence OCR (prebuilt-layout)              │
- │   5. gpt-4.1-mini extrae metadata (schema fijo validado)      │
- │   6. Chunking 2000 chars + metadata header embebido           │
- │   7. Embeddings (text-embedding-3-small, batch 16)            │
- │   8. Upsert al índice con merge semantics                     │
- │   9. Log a Application Insights + DLQ si falla                │
+ │  Queue workers (en stroingest):                               │
+ │   📬 delta_worker        ← delta-sync-queue (clasifica)      │
+ │   📬 enumeration_worker  ← enumeration-queue (full enum)     │
+ │   📬 file_worker         ← file-process-queue (batchSize=4)  │
+ │      └─ Dispatch por action:                                  │
+ │           upsert → download + OCR + chunk + embed + indexa   │
+ │           rename → patch nombre_archivo + sharepoint_url     │
+ │           move   → patch folder_path                          │
+ │           delete → delete_by_content_hash                    │
+ │           folder_rename → fan-out moves                      │
+ │      └─ maxDequeueCount=5 → poison tras fallos               │
  │                                                               │
- │  Auth: MSAL client_credentials (sync robot) + MI para Azure   │
- │  State: delta tokens en blob, task hub en Storage             │
- │  Código: function_app/ en el repo (deploy.sh para updates)    │
+ │  HTTP endpoints:                                              │
+ │   🔗 webhook_handler      Graph notifications validation     │
+ │   🔗 http_status          queue depths + delta tokens        │
+ │   🔗 http_read_document   reconstruye texto completo del doc │
+ │   🔗 http_full_resync     ⚠ 404 abierto (D-23)               │
+ │                                                               │
+ │  TARGET_INDEX_NAME = roca-contracts-v1  ← cutover 2026-04-28 │
+ │  Auth: MSAL client_credentials (sync robot) + MI para Azure  │
+ │  State: deltatokens, folderpaths, itemsindex tables          │
+ │  Código: function_app/ingest/ en el repo                     │
  └────────────────────────────┬─────────────────────────────────┘
                               │
                               ▼
@@ -469,21 +624,35 @@ Gestión documental de inmuebles de ROCA (real estate). Inmuebles identificados 
  │  - ROCA-IAInmuebles  (site 1)                                │
  │  - ROCAIA-INMUEBLESV2 (site 2)                               │
  │                                                               │
- │  Auth: Entra ID App Registration con Sites.Selected          │
- │        (Application permission, no user interaction)         │
+ │  Auth: Entra ID App Registration `roca-copilot-sync-agent`   │
+ │        Sites.Selected (Application permission, READ only)    │
+ │  Subscriptions: 2 activas, expiration auto-renewed cada 60h  │
  └──────────────────────────────────────────────────────────────┘
+
+ NOTA: func-roca-copilot-sync (legacy F5 Durable) sigue activo
+ SOLO para el bot HTTP (http_bot_messages). Los timers Durable
+ (timer_sync_delta, timer_acl_refresh, timer_full_resync) están
+ isDisabled: true desde F9. Su código de pipeline ya no se ejecuta.
 ```
 
 ### Piezas GA (no preview) que usamos
 
-- ✅ Azure AI Search Basic tier (con integrated vectorizer + semantic ranking)
-- ✅ Azure Durable Functions (Y1 Consumption, Python v2 programming model)
+- ✅ Azure AI Search Basic tier (con integrated vectorizer + semantic ranking standard)
+- ✅ Azure Functions Flex Consumption (Python 3.11) — pipeline ingesta queue-based en `func-roca-ingest-prod` (F9)
+- ✅ Azure Functions Y1 Consumption (Python 3.11) — bot Teams en `func-roca-copilot-sync`
+- ✅ Azure Storage Queues — backbone del pipeline F9 (3 queues + 3 poison + 3 tables en `stroingest`)
+- ✅ Microsoft Graph API (delta query + subscriptions) con app-only `Sites.Selected`
 - ✅ Azure OpenAI (gpt-4.1-mini + text-embedding-3-small)
 - ✅ Azure Document Intelligence (prebuilt-layout)
-- ✅ Azure AI Foundry Agent Service con AzureAISearchTool + Foundry Responses API
+- ✅ Azure AI Foundry Agent Service v1 (versionado, agent_endpoint con version_selector)
 - ✅ Azure Bot Service (F0 free) — solo como router Teams → Function App
 - ✅ `botbuilder-core==4.15.0` + `CloudAdapter` para validación JWT inbound
 - ✅ HTTP directo (requests.post) para respuesta outbound a Teams (bypass MSAL)
+
+### Piezas preview que SÍ usamos (con criterio)
+
+- ⚠ **Agentic Retrieval / Foundry IQ Knowledge Base** (`api-version=2025-11-01-preview`). Justificación: la única alternativa GA es single-shot RAG, que demostró tener un agujero en queries de detalle (caso RA03). Si Microsoft hace breaking changes en el preview, el rollback es inmediato (`PATCH agent_endpoint` a v10) y el sistema vuelve al estado anterior sin pérdida de datos.
+- ⚠ **Foundry Agent Endpoints V1Preview** (header `Foundry-Features: AgentEndpoints=V1Preview`). Necesario para `PATCH agent_endpoint.version_selector`. Mismo criterio de rollback que arriba.
 
 ### Piezas preview que explícitamente EVITAMOS
 
@@ -492,8 +661,10 @@ Gestión documental de inmuebles de ROCA (real estate). Inmuebles identificados 
 - ❌ Logic Apps Standard (subscription sin cuota WorkflowStandard + SP connector no soporta app-only Sites.Selected — verificado 2026-04-15, ver FASE_5_DESIGN_DECISIONS.md)
 - ❌ Copilot Retrieval API / Remote Knowledge Source (no permite schema propio ni enrichment custom)
 - ❌ Foundry Activity Protocol directo a Teams (bug de plataforma MS cuando el agente tiene AI Search tool adjunto — mensajes no llegan, sin trazas, confirmado en múltiples reportes de comunidad)
+- ❌ Endpoint legacy `/applications/{name}/protocols/openai/responses` para conexión bot↔agente (NO respeta `agent_endpoint.version_selector` — siempre resuelve a una version pinned histórica). Lección aprendida 2026-04-22.
 - ❌ BotFrameworkAdapter (legacy, soporte expiró Dic 2025, falla JwtTokenValidation con SingleTenant)
 - ❌ MSAL para token outbound (falla silenciosamente con `KeyError: 'access_token'` en este contexto)
+- ❌ Tool custom OpenAPI `read_document` (patrón "search + read separados" desaconsejado por Anthropic; reemplazado por Agentic Retrieval que cumple el mismo objetivo de forma nativa)
 
 ---
 
@@ -1639,15 +1810,22 @@ az functionapp config appsettings list \
 #### Código del middleware — dónde está
 
 - **`function_app/function_app.py`**: trigger `http_bot_messages` (route=`messages`), funciones `_bot_turn`, `_bot_send_reply`, instancia `_BOT_ADAPTER` y warmup timer `timer_bot_warmup`.
-- **`function_app/shared/bot.py`**: función `ask_roca_copilot()` — llama Foundry Responses API con MSI (`DefaultAzureCredential`, scope `https://ai.azure.com/.default`).
+- **`function_app/shared/bot.py`**: función `ask_roca_copilot()` — pre-search server-side por código de inmueble + llamada a Foundry Agent Service con MSI (`DefaultAzureCredential`, scope `https://ai.azure.com/.default`).
 
-**Endpoint Foundry Responses API**:
+**Endpoint Foundry Agent Service** (actualizado 2026-04-22 — endpoint moderno con `agent_reference`):
 
 ```
 POST https://rocadesarrollo-resource.services.ai.azure.com
-     /api/projects/rocadesarrollo/applications/roca-copilot
-     /protocols/openai/responses?api-version=2025-11-15-preview
+     /api/projects/rocadesarrollo/openai/v1/responses
+
+Body:
+{
+  "agent_reference": {"type": "agent_reference", "name": "roca-copilot"},
+  "input": "<user_text + pre-search context>"
+}
 ```
+
+**Por qué este endpoint y no el legacy `/applications/.../protocols/openai/responses`**: el legacy NO respeta `agent_endpoint.version_selector` (siempre resuelve a una version pinned histórica). El moderno SÍ lo respeta, así que publicar nueva versión del agente con `PATCH agent_endpoint` redirige el tráfico sin redeploy del bot. Ver sección 10.6 para procedimiento.
 
 #### Teams App Manifest
 
@@ -1737,11 +1915,11 @@ Total con security trimming: ~2.5 días de trabajo efectivo
 
 ---
 
-## 7. Costos estimados (producción) — actualizado 2026-04-15
+## 7. Costos estimados (producción) — actualizado 2026-04-29
 
 ### 💰 Resumen ejecutivo para el cliente
 
-**Costo mensual total estimado: ~$85–110 USD/mes** para mantener el agente ROCA Copilot operando 24/7 con sincronización automática de SharePoint.
+**Costo mensual total estimado: ~$90–130 USD/mes** para mantener el agente ROCA Copilot operando 24/7 con pipeline queue-based, sincronización automática de SharePoint y Agentic Retrieval para queries de detalle.
 
 ### Desglose por servicio
 
@@ -1751,12 +1929,15 @@ Total con security trimming: ~2.5 días de trabajo efectivo
 | **Azure OpenAI — gpt-4.1-mini**  | `rocadesarrollo-resource` / `gpt-4.1-mini`           | GlobalStandard 50K TPM | Modelo que responde las preguntas del agente + extrae metadata de docs nuevos en el pipeline. | **~$5–15** (pay-per-token, depende del volumen de queries del equipo + docs nuevos procesados) |
 | **Azure OpenAI — embeddings**    | `rocadesarrollo-resource` / `text-embedding-3-small` | Standard 100K TPM      | Genera vectores de búsqueda para cada chunk de documento.                                     | **~$0.50–1** (pay-per-token, solo cuando se procesan docs nuevos)                              |
 | **Azure Document Intelligence**  | `rocadesarrollo-resource`                            | Incluido en AIServices | OCR inteligente: extrae texto de PDFs escaneados (tablas, layouts).                           | **~$1–3** (solo docs nuevos: $1.50/1000 páginas)                                               |
-| **Azure Blob Storage**           | `strocacopilotprod`                                  | Hot LRS                | Cache de OCR + delta tokens + DLQ + task hub de Durable Functions.                            | **~$1–2**                                                                                      |
-| **Azure Function App**           | `func-roca-copilot-sync`                             | Y1 Consumption (Linux) | Pipeline de sincronización automática SharePoint → AI Search. Corre cada 5 min. Bot warmup cada 4 min. | **$0** (free tier: 1M ejecuciones/mes + 400K GB-seg gratis. ROCA usa ~34K ejecuciones/mes = 3.4% del free tier. El timer cada 5 min es gratuito: si no hay archivos nuevos en SP, la función termina en ~200ms sin hacer nada.) |
-| **Log Analytics + App Insights** | `log-roca-copilot-prod` + `appi-roca-copilot-prod`   | Pay-as-you-go          | Monitoreo, logs, diagnósticos.                                                                | **~$2–5**                                                                                      |
-| **Key Vault**                    | `kv-roca-copilot-prod`                               | Standard               | Almacena el secret del sync robot de forma segura.                                            | **~$0.03**                                                                                     |
+| **Azure Blob Storage** (×2)      | `strocacopilotprod` (bot+ocr) + `stroingest` (queues+tables) | Hot LRS         | Cache de OCR + queues + tables + Durable task hub.                                            | **~$2–3**                                                                                      |
+| **Function App bot (legacy)**    | `func-roca-copilot-sync`                             | Y1 Consumption Linux   | Bot Teams (`http_bot_messages`). Timers Durable disabled post-F9.                            | **$0** (free tier)                                                                             |
+| **Function App ingest (F9)**     | `func-roca-ingest-prod`                              | Flex Consumption Linux | Pipeline queue-based: 10 handlers (3 queue workers, 3 timers, webhook, status, read_document, full-resync). | **$0** (free tier 1M ejec + 400K GB-s/mes — ROCA usa ~10% del grant) |
+| **Log Analytics + App Insights** | `log-roca-copilot-prod` + `appi-roca-copilot-prod` + `func-roca-ingest-prod` | Pay-as-you-go | Monitoreo, logs, diagnósticos.                                                                | **~$2–8**                                                                                      |
+| **Key Vault**                    | `kv-roca-copilot-prod`                               | Standard               | Almacena los secretos: sync robot + bot Framework auth.                                      | **~$0.03**                                                                                     |
 | **Azure Bot Service**            | `roca-copilot-bot`                                   | F0 Free                | Puente entre el agente y Microsoft Teams.                                                     | **$0**                                                                                         |
 | **Action Group**                 | `ag-roca-copilot-prod`                               | —                      | Envía emails de alerta cuando algo falla.                                                     | **$0**                                                                                         |
+| **Agentic Retrieval (Knowledge Base)** | `roca-knowledge-base` en `srch-roca-copilot-prod` | preview, free tier 50M tokens/mes | Pipeline multi-query del agente: descompone query en subqueries paralelas, semantic reranking, answer synthesis. Cubre el caso "detalles del contenido del documento". | **~$0–5** (free tier 50M agentic reasoning tokens cubre ~250 queries de detalle/mes; pay-as-you-go después) |
+| **Tokens de query planning + answer synthesis (gpt-4.1-mini)** | mismo deployment AOAI | — | Costos de LLM para planeación de subqueries y síntesis de respuesta en Agentic Retrieval. Se cobran como tokens normales del deployment `gpt-4.1-mini`. | **~$0.50–3** (incluido en línea de gpt-4.1-mini arriba — ~$0.005/query con detalle) |
 
 ### Costos que NO son recurrentes (ya pagados)
 
@@ -1765,13 +1946,13 @@ Total con security trimming: ~2.5 días de trabajo efectivo
 | Ingesta inicial de ~76 PDFs (OCR + extraction + embeddings) | ~$2-3 USD         | Ya pagado 2026-04-15. Re-procesamiento de docs existentes $0 (cache en blob). |
 | Desarrollo + debugging del pipeline                         | ~$5 USD en tokens | Sesión de implementación 2026-04-15.                                          |
 
-### Escenarios de costo según uso
+### Escenarios de costo según uso (post Fase 8 — Agentic Retrieval)
 
-| Escenario                                      | Queries/día del equipo | Docs nuevos/mes | Costo mensual estimado |
-| ---------------------------------------------- | ---------------------- | --------------- | ---------------------- |
-| **Bajo** (equipo de 3-5 personas, uso casual)  | 20-50                  | 10-20           | **~$85/mes**           |
-| **Medio** (equipo de 10+ personas, uso diario) | 100-300                | 50-100          | **~$95/mes**           |
-| **Alto** (toda la empresa, uso intensivo)      | 500+                   | 200+            | **~$110-130/mes**      |
+| Escenario                                      | Queries/día del equipo | Queries de detalle/mes | Docs nuevos/mes | Costo mensual estimado |
+| ---------------------------------------------- | ---------------------- | ---------------------- | --------------- | ---------------------- |
+| **Bajo** (equipo de 3-5 personas, uso casual)  | 20-50                  | 50-150                 | 10-20           | **~$90/mes** (free tier agentic cubre)  |
+| **Medio** (equipo de 10+ personas, uso diario) | 100-300                | 300-800                | 50-100          | **~$100/mes** (free tier agentic cubre) |
+| **Alto** (toda la empresa, uso intensivo)      | 500+                   | 1000+                  | 200+            | **~$115-135/mes** (puede rebasar 50M tokens free → ~$3-10 extra) |
 
 > **Nota**: el costo está dominado por Azure AI Search Basic ($75 fijo). Si el volumen de queries es muy bajo, se puede considerar bajar a AI Search Free tier ($0) pero pierde semantic ranking y se limita a 50MB de almacenamiento. No recomendado para producción.
 
@@ -2037,31 +2218,245 @@ Para que el usuario (y cualquier futuro colaborador) las vea de un vistazo:
 
 ---
 
-## 10. Siguiente acción inmediata
+## 10. Fase 8 — Agentic Retrieval con MCP (✅ COMPLETA 2026-04-22)
 
-**Estado 2026-04-15**: Fases 1, 2, 3 cerradas + smoke tests end-to-end validados + Fase 4A reclasificada a "100% Claude ejecuta". Próximo paso: **arrancar Fase 4A directamente** — no hay bloqueante humano previo.
+**Estado**: en producción y validada en Teams. El agente ahora responde correctamente a queries de detalle (firmantes, notaría, fechas) sobre documentos ya identificados — caso del título de propiedad RA03 resuelto end-to-end.
 
-**Fase 4A — plan de ejecución en la siguiente sesión**:
+### 10.1 Qué problema resolvió
 
-1. Claude escribe `scripts/ingestion/download_sample_pdfs.py` usando el sync robot + Graph API
-2. Corre el script → descarga 15–22 PDFs representativos a `contratosdemo_real/`
-3. OCR con Document Intelligence + guarda el raw JSON en `ocr-raw` container
-4. Discovery prompt con `gpt-5-mini` (`max_completion_tokens: 4000`)
-5. Entrega: reporte de hallazgos + schema Capa 1+2+3 propuesto para revisión del usuario
+El RAG single-shot del agente (tool `azure_ai_search` con `query_type=vector_semantic_hybrid`, top_k=6) encontraba el documento correcto en una primera query, pero al pedir detalles específicos (*"¿quién firmó? ¿qué notaría? ¿qué fechas?"*) BM25 reranqueaba globalmente sin "memoria" del documento original y traía chunks de OTROS docs con coincidencias léxicas (caso reproducido: confundía `258,154 PRIMER TESTIMONIO RA03` con `DISEÑO DE PAVIMENTOS RA-03`).
 
-**En paralelo — conversaciones con el equipo ROCA (no bloquean Fase 4A)**:
+### 10.2 Por qué Agentic Retrieval (y no `read_document` custom)
 
-1. Resolver deuda **D-1 (Budget MCA)**: identificar al Billing Account Owner del MCA de ROCA TEAM y pedir asignación de `Cost Management Contributor`, o que esa persona cree el Budget `$300/mes` desde el portal vinculado al Action Group `ag-roca-copilot-prod`
-2. Solicitar a Legal/Operaciones la lista maestra de permisos obligatorios por tipo de inmueble (para R-11, no bloquea hasta Fase 6)
-3. Identificar 3 usuarios de prueba con perfiles distintos de permisos SharePoint para los tests de security trimming de Fase 6.3b (Directivo / Gerente de zona / Empleado)
+Antes de implementar consideramos un OpenAPI tool custom `read_document(content_hash)` que leyera del cache de chunks. Lo descartamos porque:
 
-**Comando para arrancar la siguiente sesión de Claude**:
+1. **Anthropic explícitamente desaconseja** el patrón "search + read separados". Recomienda tools compuestos que retornen información completa en una sola llamada (`Writing tools for agents`).
+2. **Microsoft sacó Agentic Retrieval** (Azure AI Search, public preview, marzo 2026) que resuelve el problema a nivel arquitectónico: un LLM descompone la pregunta en subqueries paralelas, cada una con semantic reranking, y sintetiza una respuesta unificada con citaciones.
+3. La conexión Foundry agent ↔ Knowledge Base usa **MCP** (Model Context Protocol) nativo. No hay que mantener Function App custom, ni OpenAPI specs, ni bridges de auth.
 
-> "Arranca Fase 4A del plan. Escribe el script `download_sample_pdfs.py` usando el sync robot, descarga la muestra a `/Users/datageni/Documents/ai_azure/contratosdemo_real/`, corre OCR con Document Intelligence, y haz el discovery con gpt-5-mini. Entrega reporte + schema Capa 1+2+3 para mi revisión."
+Referencia oficial: [Connect Agents to Foundry IQ Knowledge Bases](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/foundry-iq-connect).
+
+### 10.3 Arquitectura resultante
+
+```
+Bot middleware (function_app/shared/bot.py)
+  │ POST {endpoint}/openai/v1/responses
+  │ body: {agent_reference: {name: "roca-copilot"}, input: ...}
+  ▼
+Foundry Agent Service
+  agent.agent_endpoint.version_selector → 100% traffic a v11
+  ▼
+roca-copilot:11
+  ├── tool 1: azure_ai_search   (descubrimiento — "¿qué docs hay sobre X?")
+  └── tool 2: mcp                (detalles — firmantes/fechas/notaría/cláusulas)
+                │
+                ▼ MCP (allowed_tools: knowledge_base_retrieve)
+        Project Connection: roca-knowledge-mcp
+        target: srch-…/knowledgebases/roca-knowledge-base/mcp
+                │
+                ▼
+        Azure AI Search Knowledge Base: roca-knowledge-base
+          └── Knowledge Source: roca-knowledge-source
+                └── Index: roca-contracts-v1 (9038 chunks, sin re-indexar)
+```
+
+### 10.4 Recursos Azure creados/modificados (2026-04-22)
+
+| Recurso | Acción | Notas |
+|---|---|---|
+| `roca-knowledge-source` (AI Search) | Creado | Wrapper sobre `roca-contracts-v1`, expone 8 sourceDataFields incluyendo `nombre_archivo`, `sharepoint_url`, `inmueble_codigo_principal`, `content` |
+| `roca-knowledge-base` (AI Search) | Creado | LLM gpt-4.1-mini para query planning, `outputMode=answerSynthesis`, `retrievalReasoningEffort=low` |
+| `roca-knowledge-mcp` (Project Connection) | Creado | Tipo `RemoteTool`, auth `ProjectManagedIdentity`, audience `https://search.azure.com/`, target apunta al endpoint MCP del knowledge base |
+| `roca-copilot:11` (Foundry agent version) | Creada | Mismo system prompt que v10 + sección 9 nueva ("HERRAMIENTA SECUNDARIA — agentic retrieval"). Tools: `[azure_ai_search, mcp]` |
+| `roca-copilot.agent_endpoint` | Patched | `version_selector` → 100% traffic a v11 |
+| Search Service `srch-roca-copilot-prod` | Patched | `index.semantic.defaultConfiguration = "default-semantic-config"` (requerido por Agentic Retrieval) |
+| Search MI `c9181743…` | RBAC | `Cognitive Services OpenAI User` en `rocadesarrollo-resource` (para que el knowledge base llame al LLM) — ya existía |
+| Project MI `8117b1a5…` | RBAC | `Search Index Data Reader` en search service (asignado hoy) |
+| `text-embedding-3-small` deployment | Recreado | Bug recurrente `OperationNotSupported` (3ª vez: 2026-04-17, 2026-04-20, 2026-04-22). Fix conocido: delete + recreate |
+| `function_app/shared/bot.py` | Editado + deploy | Endpoint `/applications/roca-copilot/protocols/openai/responses` → `/openai/v1/responses`, body `model` → `agent_reference`. lastModifiedTimeUtc del Function App: 2026-04-22T04:58:19 |
+
+### 10.5 Cambios al bot (3 líneas)
+
+`function_app/shared/bot.py`:
+- `_RESPONSES_ENDPOINT` ahora apunta al endpoint moderno `/openai/v1/responses` (sin api-version pinned)
+- `_MODEL = "gpt-4.1-mini"` → `_AGENT_NAME = "roca-copilot"`
+- Body de `requests.post`: `{"model": ..., "input": ...}` → `{"agent_reference": {"type": "agent_reference", "name": _AGENT_NAME}, "input": ...}`
+
+**Por qué este cambio fue necesario** (descubrimiento durante la migración): el endpoint legacy `/applications/{name}/protocols/openai/responses` NO respeta `agent_endpoint.version_selector` — siempre resuelve a una version pinned histórica. Solo el endpoint moderno `/openai/v1/responses` con `agent_reference` honra el version selector. A partir de ahora, futuras versiones del agente se publican con `PATCH agent_endpoint` y el bot las consume sin redeploy.
+
+### 10.6 Cómo publicar una nueva versión del agente sin tocar el bot
+
+```bash
+TOKEN=$(az account get-access-token --resource https://ai.azure.com --query accessToken -o tsv)
+
+# 1. Crear nueva version (ej. v12) via SDK o REST
+curl -X POST "https://rocadesarrollo-resource.services.ai.azure.com/api/projects/rocadesarrollo/agents/roca-copilot/versions?api-version=v1" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"roca-copilot","definition":{ ... }}'
+
+# 2. Probar v12 aislada SIN tocar producción
+curl -X POST "https://rocadesarrollo-resource.services.ai.azure.com/api/projects/rocadesarrollo/openai/v1/responses" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"input":"...","agent_reference":{"type":"agent_reference","name":"roca-copilot","version":"12"}}'
+
+# 3. Si OK → publish v12 (redirige 100% del tráfico, el bot lo usa al instante)
+curl -X PATCH "https://rocadesarrollo-resource.services.ai.azure.com/api/projects/rocadesarrollo/agents/roca-copilot?api-version=v1" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Foundry-Features: AgentEndpoints=V1Preview" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_endpoint":{"version_selector":{"version_selection_rules":[{"type":"FixedRatio","agent_version":"12","traffic_percentage":100}]}}}'
+```
+
+Rollback: el mismo PATCH con `agent_version: "<version_anterior>"` (5 segundos).
+
+### 10.7 Costos delta de Agentic Retrieval
+
+| Concepto | Costo |
+|---|---|
+| AI Search agentic reasoning tokens (free tier) | 50M tokens/mes incluidos en cualquier tier — actualmente cubre el uso ROCA (~170k tokens/query × ~100 queries/mes ≈ 17M) |
+| Query planning (gpt-4.1-mini) | ~$0.0009/query (1500 input + 170 output tokens) |
+| Answer synthesis (gpt-4.1-mini) | ~$0.0040/query (~7500 input + 600 output tokens) |
+| **Costo por query con detalle** | **~$0.005 USD** |
+| **Latencia adicional** | **+15-20 seg vs single-shot RAG** (aceptable para queries jurídicas) |
+
+Costo total ROCA post-Agentic Retrieval: **~$95-125/mes** (delta ~$0-5 sobre la base actual; no rebasa free tier en uso interno típico).
+
+### 10.8 Pendientes de limpieza (no bloqueantes — se cierran en próxima sesión)
+
+- 🧹 **Eliminar agente legacy `asst_kcEoctliYHmRCg235fRXdXYo`**. Quedó pospuesto hasta validar 24-48h que v11 funciona limpio en Teams. **Validar primero** con `GET /assistants/asst_…?api-version=2025-05-15-preview` que sigue existiendo y NO está vinculado a `roca-copilot:N` antes de borrar.
+- 🧹 **Eliminar `function_app/ingest/`** (código de la Fase 8 vieja del plan, donde habíamos diseñado migración Durable→Queue + tool `read_document`). Agentic Retrieval reemplaza esa arquitectura. El Function App `func-roca-ingest-prod` y la infra del DIA2 (`stroingest`, `evgt-roca-graph`, queues, tablas) **se pueden eliminar** porque ya no se usan. Backup: `DIA2_RESULTADOS.md`, `DESIGN_ROCA_INGEST.md`, `PLAN_MIGRACION_DURABLE_TO_QUEUE.md` documentan ese diseño abandonado — mover a `docs/archive/` o eliminar.
+- 🧹 **Eliminar tool custom `read_document`** y sus artefactos: `scripts/openapi_read_document.json`, `scripts/register_read_document_tool.py`. Documentación previa (Fase 8B en este plan) ya fue eliminada.
+
+### 10.9 Pendientes que aún NO se resuelven con esta migración
+
+El bug Durable de la ingesta (incidente 2026-04-19) **sigue abierto**. Los timers `timer_sync_delta`, `timer_acl_refresh`, `timer_full_resync` siguen `Disabled=true` para evitar costos en loop. Consecuencia operativa:
+- Archivos NUEVOS subidos a SharePoint **NO se indexan automáticamente**.
+- Edits / renames / moves / deletes en SharePoint **NO se reflejan en el índice**.
+- Indexación manual vía `scripts/bypass_ingest_one.py` sigue siendo el workaround.
+
+**Roadmap para resolver**: separar en sesión propia. Opciones (mismo análisis que el Plan de migración descartado, pero ahora SIN componente `read_document` porque ya no se necesita):
+1. Investigar si existe un fix nuevo para el bug `Non-Deterministic` en versiones más recientes del SDK `azure-functions-durable` Python (último intento: 1.5.0).
+2. Migrar SOLO la pipeline de ingesta a queue-triggered stateless (sin tocar el bot ni el agente — esos ya están en su forma final).
+3. Evaluar Foundry IQ con knowledge source de tipo `Indexed SharePoint` o `Remote SharePoint` (preview), que automatiza la sincronización SharePoint↔índice y eliminaría el código de ingesta custom completamente.
+
+### 10.10 Deuda histórica que sigue abierta
+
+- **D-1 Budget MCA**: requiere asignar `Cost Management Contributor` al admin MCA de ROCA TEAM o que esa persona cree Budget `$150-300/mes` vinculado a `ag-roca-copilot-prod`
+- **D-2 `build_security_filter`**: security trimming basado en permisos SharePoint del usuario, diferido desde Fase 6 — bloquea exposición a usuarios externos
+- **D-3 Lista maestra de permisos por tipo de inmueble** (R-11): requiere input de Legal/Operaciones ROCA
 
 ---
 
-## 11. Referencias / sources de la investigación
+## 11. Fase 9 — Pipeline queue-based + cutover + reconciliación (✅ COMPLETA 2026-04-29)
+
+### 11.1 Motivación
+
+El pipeline F5 (Durable Functions en `func-roca-copilot-sync`) había sufrido el incidente non-deterministic de 2026-04-19 (~26h de pipeline caído). Aunque se mitigó con orchestration versioning y predeploy gates, persistían 2 problemas estructurales:
+
+1. **Indexación automática frágil**: nuevos PDFs en SharePoint requerían que el orchestrator estuviera 100% sano. Cualquier deploy mal coordinado → caída silente.
+2. **Sin recovery granular**: si un PDF fallaba, había que re-correr todo el `full_resync_orchestrator` (cara, lenta, no idempotente).
+
+Plan B-Final adoptado 2026-04-23: **migrar a patrón `gpt-rag-ingestion` adaptado a Function App existente** (reference flagship MS, 176 stars). 88% confianza.
+
+### 11.2 Arquitectura final
+
+Nueva Function App **`func-roca-ingest-prod`** (Flex Consumption Linux Python 3.11) separada del bot. 10 handlers:
+
+| # | Handler | Trigger | Función |
+|---|---|---|---|
+| 1 | `timer_sync_sharepoint` | cron `0 */5 * * * *` | Polling Graph delta cada 5 min, encola a `delta-sync-queue` |
+| 2 | `delta_worker` | queue `delta-sync-queue` | Clasifica evento (upsert/rename/move/delete/folder_rename) y encola al `file-process-queue` |
+| 3 | `enumeration_worker` | queue `enumeration-queue` | Full enum de un drive vía Graph, encola UN upsert por archivo |
+| 4 | `file_worker` | queue `file-process-queue` (batchSize=4) | Dispatcher por action (ver `shared/file_actions.py`) |
+| 5 | `subscription_renewer` | cron `0 0 3 * * *` | Crea + renueva Graph subscriptions cada 3 días, expiration target = +60h |
+| 6 | `timer_purger` | cron `0 0 * * * *` | Reconcilia índice vs SP, batch DELETE huérfanos. Guardrails: skip si itemsindex vacío o >50% sería huérfano |
+| 7 | `webhook_handler` | HTTP `/api/webhook/graph` | Validación + ingesta de notifications de Graph |
+| 8 | `http_status` | HTTP `/api/status` | Telemetría: `target_index`, queue depths, delta tokens |
+| 9 | `http_read_document` | HTTP `/api/read_document/{hash}` | Reconstruye texto completo de un doc desde sus chunks (sin re-OCR) |
+| 10 | `http_full_resync` | HTTP `/api/admin/full-resync` | ⚠ Bug abierto D-23 (404). Workaround documentado en runbook |
+
+Storage account separado **`stroingest`** con 6 queues + 3 tables (`deltatokens`, `folderpaths`, `itemsindex`).
+
+### 11.3 Timeline de eventos
+
+| Fecha UTC | Evento |
+|---|---|
+| 2026-04-21 | Diseño inicial (`DESIGN_ROCA_INGEST.md`, 62 KB) |
+| 2026-04-23 | Decisión arquitectural Plan B-Final adoptado tras investigar 3 alternativas (webhooks+EventGrid descartado por `60min latency` Graph + `no captura deletes`) |
+| 2026-04-24 (Day 3) | 6 handlers nuevos deployados, 10/10 funciones live. Backfill al `roca-contracts-v1-shadow` con 8,851 docs (`TARGET_INDEX_NAME` apuntaba a shadow como guardrail) |
+| 2026-04-24 cierre | Sesión cerró con drenaje OK al shadow. Cutover a prod **NO** se ejecutó (descuido humano) |
+| 2026-04-24 → 2026-04-28 | Cliente subió ~84 PDFs nuevos a SP. **Todos procesados al shadow** (correcto por la queue, pero al índice equivocado) |
+| **2026-04-28 21:05 UTC** | **Cutover ejecutado**: `TARGET_INDEX_NAME` cambiado de `roca-contracts-v1-shadow` → `roca-contracts-v1`. Restart aplicado |
+| 2026-04-28 21:15-21:21 | Backfill de `itemsindex` table: 1,588 entries actualizadas, 84 huérfanos identificados |
+| 2026-04-28 22:43 | Encolados 2 enumeration messages para reconciliar 84 huérfanos |
+| 2026-04-28 23:08 | Drenaje completo: 1,588 dedup hits + 83 huérfanos OK con vectores + 1 archivo defectuoso (0 bytes) en poison |
+| 2026-04-29 | Limpieza poison queue + verificación funcional + actualización plan |
+
+### 11.4 Bugs descubiertos durante el cutover
+
+#### Bug A — Shadow index sin vectores (causa raíz del cutover bloqueado)
+
+**Síntoma**: `roca-contracts-v1-shadow` tenía 8,851 docs pero `vectorIndexSize: 0`.
+
+**Causa raíz**: el script `scripts/rehydrate_shadow_from_prod.py:195` hace `prod.search(search_text="*", top=None)` SIN parámetro `select=`. El SDK de `azure-search-documents` no retorna campos con `retrievable: false` en queries `search()` sin select explícito. El campo `content_vector` en prod tiene `retrievable: false` (best practice MS para ahorrar bandwidth, los vectores existen internamente con `vectorIndexSize: 58 MB`). Resultado: el upload al shadow incluyó `content_vector: None` para los 9,038 chunks.
+
+**Decisión**: NO arreglar el shadow. Cutover directo al prod (que ya tenía vectores buenos). Shadow queda zombie (D-24).
+
+#### Bug B — 84 archivos huérfanos en el índice equivocado
+
+**Síntoma**: 84 PDFs subidos por el cliente entre 04-24 y 04-28 estaban en SP + shadow pero NO en prod.
+
+**Causa raíz**: `TARGET_INDEX_NAME=roca-contracts-v1-shadow` durante 4 días post-Day 3. El delta sync detectó los uploads, los procesó correctamente, pero los escribió al shadow inservible.
+
+**Resolución**: re-enumeración full de los 2 drives → `handle_upsert` con dedup por `content_hash`. Los 1,588 archivos ya en prod hicieron dedup_hit (~5s c/u), los 84 huérfanos pasaron por full path (download → OCR → embed → indexa). Total ~25 min, costo ~$3-4 USD.
+
+**Patrón Microsoft canónico aplicado**: re-enumeración full con dedup idempotente. Documentado en [GPT-RAG SharePoint connector](https://azure.github.io/GPT-RAG/ingestion_sharepoint_source/) como el patrón oficial para reconciliación.
+
+### 11.5 Estado final del índice prod
+
+| Métrica | Pre-cutover (2026-04-28) | Post-reconciliación (2026-04-29) | Δ |
+|---|---|---|---|
+| Doc count | 9,038 | **11,232** | **+2,194 chunks** |
+| Storage size | 290 MB | 323 MB | +33 MB |
+| Vector index size | 58 MB | **87 MB** | **+29 MB** |
+| Archivos únicos | ~1,030 | **1,114** | +84 archivos |
+
+### 11.6 Confianza por escenario (verificado 2026-04-29)
+
+| Escenario | Confianza | Validación |
+|---|---|---|
+| **Subir PDF nuevo** | **90-95%** | 83/84 huérfanos procesados OK con vectores end-to-end. Falta validación con un PDF nuevo subido por el cliente en tiempo real |
+| **Renombrar PDF existente** | **75-85%** | Validado solo por código + backfill `itemsindex` con 1,588 entries. **NO probado en vivo** |
+| **Mover PDF existente** | **75-85%** | Mismo caveat |
+| **Borrar PDF existente** | **75-85%** | Mismo caveat. Hay fallback `timer_purger` cada hora pero **NO testeado en prod** |
+| Vector search funcional | **100%** | Verificado vivo: query "vigencia RA03" devuelve `RA03_Contrato_v1.pdf` con score |
+
+**Para llegar a 95%+ en los 4 escenarios destructivos**, falta una prueba real de los 4 casos (upload + rename + move + delete) con un PDF de test. Pendiente que el cliente ejecute en SP.
+
+### 11.7 Archivos del repo nuevos (F9)
+
+- `function_app/ingest/` — completo, nueva Function App ingest
+- `function_app/ingest/function_app.py` — 10 handlers
+- `function_app/ingest/shared/file_actions.py` — handlers `upsert/rename/move/delete/folder_rename`
+- `function_app/ingest/shared/embeddings.py` — `embed_batch` (idéntico a legacy para parity)
+- `function_app/ingest/shared/search_client.py` — `upsert_documents`, `delete_by_content_hash`, `patch_document_fields`, `find_by_content_hash`, `read_chunks_by_hash`
+- `function_app/ingest/shared/queue_storage.py` — `enqueue_upsert`, `enqueue_enumeration`, etc.
+- `function_app/ingest/shared/table_storage.py` — `upsert_item_index`, `get_item_index`, `delete_item_index`, `list_descendant_items`
+- `function_app/ingest/shared/graph_client.py` — `iter_delta_changes`, `list_drive_items_recursive`, `stream_download_to_temp`
+- `function_app/ingest/host.json` — `functionTimeout: 30 min`, `batchSize: 4`, `maxDequeueCount: 5`
+- `scripts/backfill_itemsindex_from_prod.py` — script F9 para backfill `itemsindex` desde prod (no shadow). Idempotente
+- `scripts/deploy_ingest.sh` — deploy con `func azure functionapp publish --python --build remote`
+
+### 11.8 Pendientes post-F9 (no bloqueantes)
+
+1. **D-23 — Bug `http_full_resync` 404**: investigar conflict con reserved path `/api/admin/*`. Workaround documentado: encolar manualmente a `enumeration-queue`.
+2. **D-24 — Shadow index cleanup**: borrar `roca-contracts-v1-shadow` después de 1-2 semanas de validación. Cero costo extra, pero ocupa storage.
+3. **D-26 — `acta-entrega-trabajo.pdf` 0 bytes**: cliente debe re-subir o borrar el archivo.
+4. **Validación end-to-end con cliente**: que el cliente suba un PDF de prueba a SP, espere ≤5 min, y pregunte sobre él en Teams. Si lo encuentra → cierre 100%.
+
+---
+
+## 12. Referencias / sources de la investigación
 
 ### Microsoft docs oficial
 
@@ -2086,7 +2481,7 @@ Para que el usuario (y cualquier futuro colaborador) las vea de un vistazo:
 
 ---
 
-## 12. Matriz de pruebas — resumen ejecutivo
+## 13. Matriz de pruebas — resumen ejecutivo
 
 | Categoría            | Cuántos | Casos                                                                              |
 | -------------------- | ------- | ---------------------------------------------------------------------------------- |
@@ -2098,7 +2493,7 @@ Para que el usuario (y cualquier futuro colaborador) las vea de un vistazo:
 
 ---
 
-## 13. Flujo end-to-end — cómo funciona el sistema en operación
+## 14. Flujo end-to-end — cómo funciona el sistema en operación
 
 Esta sección cuenta narrativamente cómo el sistema opera una vez desplegado, con ejemplos concretos. Es el documento de referencia conceptual para cualquiera que quiera entender el proyecto sin leer código.
 
@@ -2222,12 +2617,128 @@ Esta sección cuenta narrativamente cómo el sistema opera una vez desplegado, c
 
 ---
 
-_Documento vivo. Se actualiza conforme avanzamos por las fases. Última revisión: 2026-04-14._
+## 15. Fase 10 — Welcome UX con Adaptive Cards (✅ COMPLETA 2026-04-29)
 
-Principal ID of the agent identity
-e28a0c34-3d8c-406f-9482-d7fe66c9a9f4
+### 15.1 Origen del requerimiento
 
-Tenant ID
-9015a126-356b-4c63-9d1f-d2138ca83176
+Iván (cliente ROCA) compartió screenshots de **Microsoft 365 Copilot Studio** mostrando "indicaciones sugeridas" amarradas a "temas" (chips clickeables al abrir el chat). Pregunta literal: *"¿Esto es viable en Foundry?"*. Implícito: ¿se puede dar la misma UX guiada en Teams sin migrar el agente fuera de Foundry?
 
-TENEMOS QUE LIGAR LOS ARCHIVOS DEL BLOB, PARA QUE SE BORRE DEL SHAREPOINT SE BORRE EL BLOB
+Mapeo de terminología Copilot Studio → Bot Framework Teams:
+
+| Lo que Iván llamó | Nombre técnico real | Mecanismo en Teams |
+|---|---|---|
+| "Indicaciones sugeridas" (chips iniciales) | Suggested prompts / Conversation starters | Adaptive Card con `Action.Submit` |
+| "Tema" | Topic con trigger phrases | System prompt branching del agente Foundry |
+| "Instrucción" estructurada (`Si existe X / Si NO existe Y`) | Custom Instructions por topic | Instructions del agente Foundry |
+
+### 15.2 Validación contra docs oficiales Microsoft
+
+Tres patrones candidatos investigados antes de elegir:
+
+| Patrón | Veredicto | Por qué |
+|---|---|---|
+| **Suggested Actions** del Bot Framework SDK | ❌ Descartado | Cita Microsoft Learn: *"Card actions are different than suggested actions in Bot Framework or Azure Bot Service. Teams does not support `potentialActions` property."* Render inconsistente, chips se borran tras click |
+| **`commandLists` en manifest de Teams** | ⚠️ Implementado pero NO satisfactorio en Teams Web 2026 | Es el patrón documentado pero la new UI (`teams.cloud.microsoft`) no los renderiza donde la doc clásica decía. El menú `/` que el usuario ve son comandos GLOBALES de Teams, no del bot |
+| **Adaptive Card con `Action.Submit` + `msteams.type=imBack`** | ✅ Elegido y deployado | Cita: *"Adaptive Cards are the recommended card type for new Teams development"* + *"Teams platform supports v1.5 or earlier of Adaptive Card features for bot sent cards"*. Va por API del bot, sin caché de Teams ni dependencia de propagación de catálogo |
+
+Validación que ES requisito oficial Microsoft (no opcional): para validation de bots en Teams, [Microsoft Q&A 5742278](https://learn.microsoft.com/en-ca/answers/questions/5742278/teams-bot-app-validation-fails-bot-must-send-a-pro) exige *"Bot must send a proactive welcome message in personal scope"*.
+
+### 15.3 Arquitectura de 3 capas (planeada)
+
+| Capa | Mecanismo | Estado |
+|---|---|---|
+| **Capa 1** | `commandLists` en manifest Teams | ⚠️ Implementada, manifest 2.1.0 publicado, pero no se renderiza visualmente en Teams Web 2026. Queda versionada por si Microsoft arregla la UX |
+| **Capa 2** | Adaptive Card de welcome al primer mensaje del usuario | ✅ Implementada + deployada |
+| **Capa 3** | Adaptive Card con follow-ups al final de cada respuesta del agente | ⏳ Pendiente, opcional según feedback de Iván |
+
+### 15.4 Capa 1 — manifest 2.1.0 con commandLists (intentada)
+
+Generado en `teams_bot/manifest.json` (versionado en repo) y zip `teams_bot/ROCA-Copilot-v2.1.zip`. Subido a Teams Admin Center → Manage apps → ROCA Copilot → Update. **Published version: 2.1.0** confirmado. App siguiendo configuración pre-existente: Available to Everyone (org-wide default), Status Unblocked, scope Personal/Team/GroupChat.
+
+Bloque agregado al manifest:
+
+```json
+"commandLists": [{
+  "scopes": ["personal"],
+  "commands": [
+    { "title": "Ver contrato de inmueble", "description": "Muéstrame el contrato vigente del inmueble RA03" },
+    { "title": "Estudio de impacto ambiental", "description": "¿Hay estudio de impacto ambiental para el inmueble SL02?" },
+    { "title": "Próximos vencimientos", "description": "Lista los contratos que vencen en los próximos 90 días" },
+    { "title": "Resumen ejecutivo", "description": "Genera un resumen ejecutivo del expediente del inmueble GU01A" },
+    { "title": "Cláusula específica", "description": "¿Qué dice la cláusula de vigencia del contrato más reciente?" },
+    { "title": "Documentos del inmueble", "description": "Lista todos los documentos disponibles del inmueble CJ03" },
+    { "title": "Ayuda", "description": "¿Qué tipos de preguntas puedo hacerte?" }
+  ]
+}]
+```
+
+**Resultado en Teams Web new UI**: el menú `/` muestra comandos globales de Teams (ausente, configuración, silenciar) pero NO los del bot. Microsoft no documenta consistentemente dónde renderiza los `commandLists` del bot en la new UI 2026. Por eso pivoteamos a Capa 2.
+
+### 15.5 Capa 2 — Adaptive Card welcome (deployada)
+
+Adaptive Card v1.5 con título, descripción y 7 botones `Action.Submit`. Cada botón lleva `msteams.type=imBack`: al click, Teams pone el texto del prompt en el chat como si el usuario lo hubiera tipeado y reentra al pipeline normal `_bot_turn` → `ask_roca_copilot()`. **Cero modificaciones al bridge a Foundry, cero a la lógica del agente**.
+
+### 15.6 Cambios al código
+
+Solo `function_app/function_app.py`. Adiciones:
+
+1. **`_WELCOME_TRIGGERS`** (set) — palabras que disparan la welcome card cuando llegan como mensaje normal: `hola`, `buenas`, `buenos días`, `ayuda`, `help`, `comandos`, `inicio`, `start`, `menú`, `qué puedes hacer`, `cómo te uso`. Normalización: lowercase, strip de `/`, `?`, `¿`.
+2. **`_WELCOME_PROMPTS`** (list) — los 7 chips, mismos textos del manifest (consistencia).
+3. **`_build_welcome_card()`** — genera JSON Adaptive Card v1.5.
+4. **`_bot_send_welcome_card()`** — POST a `{service_url}/v3/conversations/{id}/activities` con el card como `attachment`. Mismo patrón HTTP-directo que `_bot_send_reply` (bypass de MSAL outbound).
+5. **Branch nuevo en `_bot_turn`**:
+   - Si `act.type == conversation_update` con `members_added`, filtra al bot mismo y manda welcome card.
+   - Si `act.type == message` y `user_text` normalizado está en `_WELCOME_TRIGGERS`, manda welcome card en lugar de pegarle al agente.
+   - Cualquier otro mensaje: pipeline existente sin cambios.
+
+Tres rutas redundantes para garantizar que el usuario eventualmente vea los chips, mitigando el [timing issue documentado](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/send-proactive-messages) donde a veces el welcome proactivo no llega aunque el código corra sin error.
+
+### 15.7 Deploy y validación post-deploy (2026-04-29)
+
+```bash
+cd function_app && ./deploy.sh
+```
+
+Predeploy gate pasó (0 orquestaciones vivas), zip 16 MB subido a `func-roca-copilot-sync`, health check OK:
+
+```json
+{
+  "status": "ok",
+  "target_index": "roca-contracts-v1",
+  "is_staging": false,
+  "discovery_model": "gpt-4.1-mini",
+  "embed_model": "text-embedding-3-small"
+}
+```
+
+Validación funcional pendiente de confirmar visualmente en Teams (escribir `hola` en el chat de ROCA Copilot debe devolver la card con los 7 botones).
+
+### 15.8 Archivos modificados/creados en F10
+
+- `function_app/function_app.py` — ~80 líneas agregadas (helpers + branches)
+- `teams_bot/manifest.json` — bump 2.0.0 → 2.1.0 + bloque `commandLists`
+- `teams_bot/ROCA-Copilot-v2.1.zip` — paquete listo para Teams Admin Center
+- `teams_bot/default-color-icon.png` + `default-outline-icon.png` — copiados desde el zip original
+
+### 15.9 Pendientes post-F10 (no bloqueantes)
+
+- ⏳ Validar visualmente que la Adaptive Card aparece al escribir "hola" en Teams Web (Ruta 2) y al reinstalar fresco la app (Ruta 1).
+- ⏳ Demo a Iván con el flujo completo: instala fresco → ve la card → click en chip → ve respuesta.
+- ⏳ **Capa 3** (Adaptive Card con follow-ups al final de cada respuesta del agente). Solo si Iván lo pide. Implementación: modificar `_bot_send_reply` para devolver `attachments` con card en lugar de `text` plano. El agente puede devolver `{"answer": "...", "follow_ups": [...]}` para chips dinámicos.
+- ⏳ Telemetría de qué chips se clickean más (App Insights custom event `welcome_chip_click` con `chip_title` como dimension). Permite priorizar prompts en la próxima iteración.
+- ⏳ Si en 30 días Microsoft no fixea el rendering de `commandLists` en Teams new UI, considerar borrarlos del manifest para reducir confusión (queda solo Capa 2).
+
+### 15.10 Sources de la investigación F10
+
+- [Designing your bot - Teams](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/design/bots) — UX Kit oficial Microsoft
+- [Add card actions in a bot - Teams](https://learn.microsoft.com/en-us/microsoftteams/platform/task-modules-and-cards/cards/cards-actions) — diferencia card actions vs suggested actions
+- [Cards reference - Teams supports Adaptive Cards v1.5](https://learn.microsoft.com/en-us/microsoftteams/platform/task-modules-and-cards/cards/cards-reference)
+- [Send proactive messages - Teams](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/send-proactive-messages) — patrón conversationUpdate + welcome
+- [bot-conversation Python sample (OfficeDev)](https://github.com/OfficeDev/Microsoft-Teams-Samples/blob/main/samples/bot-conversation/python/bots/teams_conversation_bot.py)
+- [App Manifest Schema 1.22+](https://learn.microsoft.com/en-us/microsoftteams/platform/resources/schema/manifest-schema)
+- [Microsoft Q&A: validation requires welcome message](https://learn.microsoft.com/en-ca/answers/questions/5742278/teams-bot-app-validation-fails-bot-must-send-a-pro)
+- [PnP Blog: Welcome new employee using Adaptive card](https://pnp.github.io/blog/post/welcome-new-employee-in-teams-using-adaptive-card/)
+
+---
+
+_Documento vivo. Se actualiza conforme avanzamos por las fases. Última revisión: 2026-04-29._

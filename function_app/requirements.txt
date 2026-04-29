@@ -1,8 +1,8 @@
 azure-functions==1.21.3
-botbuilder-core==4.15.0
-botbuilder-schema==4.15.0
-botbuilder-integration-aiohttp==4.15.0
-azure-functions-durable==1.2.8
+botbuilder-core==4.17.1
+botbuilder-schema==4.17.1
+botbuilder-integration-aiohttp==4.17.1
+azure-functions-durable>=1.5.0,<2.0.0
 azure-identity==1.19.0
 azure-keyvault-secrets==4.9.0
 azure-storage-blob==12.24.0
@@ -10,6 +10,6 @@ azure-storage-queue==12.12.0
 azure-search-documents==11.5.2
 azure-ai-documentintelligence==1.0.0
 openai==1.55.3
-msal==1.31.0
+msal>=1.31.1,<2.0.0
 requests==2.32.3
 pypdf==4.3.1

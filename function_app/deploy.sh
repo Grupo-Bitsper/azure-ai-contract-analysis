@@ -28,8 +28,31 @@ APP="func-roca-copilot-sync"
 ZIP_PATH="/tmp/function_app.zip"
 
 REFRESH_DEPS=false
-if [[ "${1:-}" == "--refresh-deps" ]]; then
-    REFRESH_DEPS=true
+SKIP_GATE=false
+for arg in "$@"; do
+    case "$arg" in
+        --refresh-deps) REFRESH_DEPS=true ;;
+        --skip-gate)    SKIP_GATE=true ;;  # emergencia/dev — NO usar en prod
+    esac
+done
+
+# =================================================================
+# OBLIGATORIO: predeploy gate bloquea si hay orquestaciones vivas.
+# Deployar con orquestaciones Running = Non-Deterministic garantizado.
+# Ver incidente 2026-04-19 en PLAN_ROCA_COPILOT.md.
+# =================================================================
+if [[ "$SKIP_GATE" == "false" ]]; then
+    GATE="$SCRIPT_DIR/../scripts/predeploy_gate.sh"
+    if [[ -x "$GATE" ]]; then
+        echo "[0/3] Pre-deploy gate..."
+        if ! "$GATE"; then
+            echo ""
+            echo "✗ Deploy ABORTADO por el gate. Si es emergencia, usa --skip-gate."
+            exit 1
+        fi
+    else
+        echo "⚠  scripts/predeploy_gate.sh no encontrado o no ejecutable — saltando gate."
+    fi
 fi
 
 if [[ "$REFRESH_DEPS" == "true" ]] || [[ ! -d ".python_packages" ]]; then

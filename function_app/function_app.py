@@ -51,18 +51,31 @@ from shared.extraction import run_extraction
 
 # ============================================================================
 # Retry policies — applied uniformly to all activity calls from orchestrators.
-# Fase 5.5 review point #7: explicit retries from day one to avoid default
-# behavior surprises.
+# Exponential backoff + retry_timeout per MS Learn "durable-task-error-handling".
 # ============================================================================
 
 RETRY_STANDARD = df.RetryOptions(
     first_retry_interval_in_milliseconds=5_000,
     max_number_of_attempts=3,
 )
+
 RETRY_FAST = df.RetryOptions(
     first_retry_interval_in_milliseconds=1_000,
     max_number_of_attempts=2,
 )
+
+# ============================================================================
+# Orchestration versioning — activated per host.json defaultVersion: "1.0.0".
+# If context.version is None (legacy pre-versioning instance) or "1.0.0",
+# orchestrators run the current code path. Future breaking changes branch
+# under new version strings per MS Learn "durable-orchestration-versioning".
+# ============================================================================
+
+CURRENT_ORCHESTRATOR_VERSION = "1.0.0"
+
+
+def _is_compatible_version(ctx_version: str | None) -> bool:
+    return ctx_version is None or ctx_version == CURRENT_ORCHESTRATOR_VERSION
 
 app = df.DFApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -155,6 +168,24 @@ async def http_manual_process(req: func.HttpRequest, client: df.DurableOrchestra
     elif event_type == "acl_refresh":
         instance_id = await client.start_new("acl_refresh_orchestrator", None, None)
     elif event_type == "full_resync":
+        # full_resync enumera TODOS los PDFs de SharePoint. Dedup por content_hash
+        # evita re-procesar lo ya indexado, pero si los hashes cambian (re-upload,
+        # re-escaneado) puede disparar OCR masivo (~$90-150 en Document Intelligence).
+        # Requiere confirm flag explícito para prevenir ejecución accidental.
+        if body.get("confirm") != "YES_REPROCESS_ALL":
+            return func.HttpResponse(
+                json.dumps({
+                    "error": "full_resync requires explicit confirmation",
+                    "hint": "POST body must include: \"confirm\": \"YES_REPROCESS_ALL\"",
+                    "reason": "Este orquestador reprocesa el corpus completo. Costo estimado: $90-150 si los hashes no matchean.",
+                }),
+                status_code=400,
+                mimetype="application/json",
+            )
+        logging.error(
+            "[ROCA-FULL-RESYNC-TRIGGERED] Manual dispatch confirmed. Caller IP=%s",
+            req.headers.get("X-Forwarded-For", "unknown"),
+        )
         instance_id = await client.start_new("full_resync_orchestrator", None, None)
     elif event_type == "file_upsert":
         site_name = body.get("site_name")
@@ -239,8 +270,8 @@ async def _bot_adapter_error(turn_context: TurnContext, error: Exception) -> Non
 _BOT_ADAPTER.on_turn_error = _bot_adapter_error
 
 
-def _bot_send_reply(service_url: str, conversation_id: str, activity_id: str, text: str) -> None:
-    """Envía respuesta a Teams directamente vía HTTP (bypass MSAL/botbuilder outbound)."""
+def _get_bot_token() -> str:
+    """Obtiene token Bot Framework para enviar activities a Teams."""
     tenant = "9015a126-356b-4c63-9d1f-d2138ca83176"
     token_resp = requests.post(
         f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
@@ -256,7 +287,41 @@ def _bot_send_reply(service_url: str, conversation_id: str, activity_id: str, te
     if "access_token" not in token_json:
         log.error("[BOT-TOKEN] fallo HTTP=%s body=%s", token_resp.status_code, token_json)
         raise RuntimeError(f"Token error: {token_json.get('error')} — {token_json.get('error_description','')[:200]}")
-    token = token_json["access_token"]
+    return token_json["access_token"]
+
+
+def _bot_send_typing(service_url: str, conversation_id: str) -> None:
+    """Envía typing indicator a Teams (los 3 puntitos animados 'Bot is typing...').
+
+    Teams muestra el indicador ~5-10s; se reemplaza automáticamente cuando llega
+    la respuesta real. Mejora UX para queries que tardan 5-15s en el agente.
+
+    NOTA: NO se incluye `replyToId` — si se incluyera, Teams lo trata como
+    'respuesta inline al mensaje del usuario' y lo renderiza encima del input
+    box en vez del flujo del thread. Sin replyToId aparece debajo del último
+    mensaje del bot, que es la UX esperada.
+
+    Endpoint: POST a /v3/conversations/{conv_id}/activities (sin activity_id en
+    el path, porque es una activity nueva, no respuesta a una específica).
+    """
+    try:
+        token = _get_bot_token()
+        url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
+        resp = requests.post(
+            url,
+            json={"type": "typing"},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=10,
+        )
+        log.info("[BOT-TYPING] HTTP %s", resp.status_code)
+    except Exception:
+        # Typing es UX, no crítico — si falla, log warning y continúa con la query
+        log.warning("[BOT-TYPING] fallo enviando typing indicator (no crítico)", exc_info=True)
+
+
+def _bot_send_reply(service_url: str, conversation_id: str, activity_id: str, text: str) -> None:
+    """Envía respuesta a Teams directamente vía HTTP (bypass MSAL/botbuilder outbound)."""
+    token = _get_bot_token()
     url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities/{activity_id}"
     reply_resp = requests.post(
         url,
@@ -268,9 +333,119 @@ def _bot_send_reply(service_url: str, conversation_id: str, activity_id: str, te
     reply_resp.raise_for_status()
 
 
+# Triggers que también disparan la welcome card si llegan como mensaje normal.
+# Mitiga el timing issue documentado donde conversationUpdate no siempre
+# entrega el welcome proactivamente — al primer "hola" del usuario, igual ve
+# los chips. Normalizar a lowercase + strip slashes y signos de pregunta.
+_WELCOME_TRIGGERS: set[str] = {
+    "hola", "buenas", "buenos dias", "buenos días",
+    "buenas tardes", "buenas noches",
+    "ayuda", "help",
+    "comandos", "comando",
+    "inicio", "start", "menu", "menú",
+    "que puedes hacer", "qué puedes hacer",
+    "como te uso", "cómo te uso",
+}
+
+
+# Prompts iniciales que aparecen como botones en la welcome card. Editar este
+# array para cambiar la UX inicial sin tocar el manifest de Teams. Cada tupla
+# es (title del botón, texto que se enviará al agente al hacer click).
+_WELCOME_PROMPTS: list[tuple[str, str]] = [
+    ("Ver contrato de inmueble", "Muéstrame el contrato vigente del inmueble RA03"),
+    ("Estudio de impacto ambiental", "¿Hay estudio de impacto ambiental para el inmueble SL02?"),
+    ("Próximos vencimientos", "Lista los contratos que vencen en los próximos 90 días"),
+    ("Resumen ejecutivo", "Genera un resumen ejecutivo del expediente del inmueble GU01A"),
+    ("Renta y actualización", "¿Cuál es la renta mensual del inmueble RA03 y cómo se actualiza según el contrato?"),
+    ("Documentos del inmueble", "Lista todos los documentos disponibles del inmueble CJ03"),
+    ("Ayuda", "¿Qué tipos de preguntas puedo hacerte?"),
+]
+
+
+def _build_welcome_card() -> dict:
+    """Adaptive Card de bienvenida con prompts iniciales como botones.
+
+    Cada Action.Submit lleva `msteams.type=imBack` para que al click Teams
+    inserte el `value` como mensaje del usuario en el chat y entre al pipeline
+    normal `ask_roca_copilot()` sin código especial.
+    """
+    return {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": [
+            {
+                "type": "TextBlock",
+                "text": "Hola, soy ROCA Copilot",
+                "size": "Large",
+                "weight": "Bolder",
+                "wrap": True,
+            },
+            {
+                "type": "TextBlock",
+                "text": (
+                    "Te ayudo a consultar contratos, licencias, permisos, "
+                    "pólizas y documentación legal de inmuebles. Selecciona "
+                    "una pregunta para empezar o escribe la tuya:"
+                ),
+                "wrap": True,
+                "spacing": "Small",
+                "isSubtle": True,
+            },
+        ],
+        "actions": [
+            {
+                "type": "Action.Submit",
+                "title": title,
+                "data": {"msteams": {"type": "imBack", "value": prompt}},
+            }
+            for title, prompt in _WELCOME_PROMPTS
+        ],
+    }
+
+
+def _bot_send_welcome_card(service_url: str, conversation_id: str) -> None:
+    """Envía un mensaje con Adaptive Card de bienvenida a Teams."""
+    token = _get_bot_token()
+    url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
+    activity = {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": _build_welcome_card(),
+            }
+        ],
+    }
+    resp = requests.post(
+        url,
+        json=activity,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        timeout=15,
+    )
+    log.info("[BOT-WELCOME] HTTP %s → %s", resp.status_code, url)
+    resp.raise_for_status()
+
+
 async def _bot_turn(turn_context: TurnContext) -> None:
     act = turn_context.activity
     log.info("[BOT] type=%s channelId=%s", act.type, act.channel_id)
+
+    if act.type == ActivityTypes.conversation_update:
+        bot_id = act.recipient.id if act.recipient else None
+        for member in act.members_added or []:
+            if member.id != bot_id:
+                log.info("[BOT] welcome card → member.id=%s", member.id)
+                try:
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, _bot_send_welcome_card,
+                        act.service_url, act.conversation.id,
+                    )
+                except Exception:
+                    log.exception("[BOT] error enviando welcome card")
+                break
+        return
+
     if act.type != ActivityTypes.message:
         return
 
@@ -278,6 +453,29 @@ async def _bot_turn(turn_context: TurnContext) -> None:
     log.info("[BOT] user_text=%r", user_text[:100])
     if not user_text:
         return
+
+    normalized = user_text.lower().lstrip("/").rstrip("?").rstrip("¿").strip()
+    if normalized in _WELCOME_TRIGGERS:
+        log.info("[BOT] welcome trigger detectado: %r", normalized)
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, _bot_send_welcome_card,
+                act.service_url, act.conversation.id,
+            )
+        except Exception:
+            log.exception("[BOT] error enviando welcome card por trigger")
+        return
+
+    # Enviar typing indicator a Teams ("Bot is typing...") antes de la query.
+    # Mejora UX porque el agente tarda ~5-15s y el usuario ve actividad inmediata.
+    # No bloqueamos si falla — typing es nice-to-have, no crítico.
+    try:
+        await asyncio.get_event_loop().run_in_executor(
+            None, _bot_send_typing,
+            act.service_url, act.conversation.id,
+        )
+    except Exception:
+        log.warning("[BOT] typing indicator falló (no crítico)", exc_info=True)
 
     log.info("[BOT] llamando a ask_roca_copilot")
     try:
@@ -345,7 +543,6 @@ def sync_delta_orchestrator(context: df.DurableOrchestrationContext):
         )
         drive_id = drive_info["drive_id"]
         site_id = drive_info["site_id"]
-
         delta_result = yield context.call_activity_with_retry(
             "get_delta_changes_activity",
             RETRY_STANDARD,
@@ -413,11 +610,12 @@ def acl_refresh_orchestrator(context: df.DurableOrchestrationContext):
         for payload in unique_hashes
     ]
     results = yield context.task_all(tasks) if tasks else []
-    return {
+    summary = {
         "docs_refreshed": sum(1 for r in results if r.get("status") == "ok"),
         "errors": sum(1 for r in results if r.get("status") == "error"),
         "total": len(results),
     }
+    return summary
 
 
 @app.orchestration_trigger(context_name="context")
@@ -433,25 +631,35 @@ def full_resync_orchestrator(context: df.DurableOrchestrationContext):
         for payload in all_items
     ]
     results = yield context.task_all(tasks) if tasks else []
-    return {
+    summary = {
         "total_enumerated": len(all_items),
         "processed": sum(1 for r in results if r.get("status") == "ok"),
         "skipped": sum(1 for r in results if r.get("status") == "skipped"),
         "errors": sum(1 for r in results if r.get("status") == "error"),
     }
+    return summary
 
 
 @app.orchestration_trigger(context_name="context")
 def process_item_orchestrator(context: df.DurableOrchestrationContext):
     """Wrapper for a single-file manual dispatch. Resolves the drive first,
-    then calls process_item_activity."""
+    then calls process_item_activity with an 8-minute deadline.
+
+    Uses the durable-timer race pattern to bound the activity. If the activity
+    exceeds 8 min (Y1 Consumption hard limit is 10 min), the orchestrator
+    returns a timeout status and records the item in the DLQ — without taking
+    down other in-flight orchestrations.
+    """
+    import datetime as _dt
+
+
     input_data: dict = context.get_input()
     site_name = input_data["site_name"]
     item_id = input_data["item_id"]
     drive_info = yield context.call_activity_with_retry(
         "resolve_drive_activity", RETRY_FAST, site_name
     )
-    result = yield context.call_activity_with_retry(
+    activity_task = context.call_activity_with_retry(
         "process_item_activity",
         RETRY_STANDARD,
         {
@@ -461,7 +669,20 @@ def process_item_orchestrator(context: df.DurableOrchestrationContext):
             "item": {"id": item_id},
         },
     )
-    return result
+    deadline = context.current_utc_datetime + _dt.timedelta(minutes=8)
+    timeout_task = context.create_timer(deadline)
+    winner = yield context.task_any([activity_task, timeout_task])
+
+    if winner == timeout_task:
+        yield context.call_activity_with_retry(
+            "record_timeout_dlq_activity",
+            RETRY_FAST,
+            {"site_name": site_name, "site_id": drive_info["site_id"], "item_id": item_id},
+        )
+        return {"status": "timeout", "item_id": item_id, "reason": "deadline_8min"}
+
+    # Activity won — the timer task remains pending but has no operational impact.
+    return activity_task.result
 
 
 # ============================================================================
@@ -610,6 +831,29 @@ def enumerate_all_items_activity(payload: Any) -> list[dict]:
     return all_items
 
 
+# Preflight limits for PDFs — documents exceeding these bounds go straight
+# to the DLQ without attempting OCR. Y1 Consumption has 1.5 GB RAM and 10-min
+# timeout; Document Intelligence Layout charges ~$10 / 1000 pages and has a
+# 2000-page / 500 MB per-request ceiling of its own. Conservative defaults
+# keep us comfortably inside all three.
+PREFLIGHT_MAX_SIZE_MB = 80
+PREFLIGHT_MAX_PAGES = 150
+
+
+@app.activity_trigger(input_name="payload")
+def record_timeout_dlq_activity(payload: dict) -> dict:
+    """Called by process_item_orchestrator when the 8-min deadline fires.
+    Pushes a DLQ entry so the operator can inspect the item that would have
+    blocked the worker."""
+    dlq.send_dlq_message(
+        "file_upsert",
+        "activity deadline exceeded (8 min)",
+        site_id=payload.get("site_id"),
+        item_id=payload.get("item_id"),
+    )
+    return {"status": "ok", "reason": "timeout_recorded"}
+
+
 @app.activity_trigger(input_name="payload")
 def process_item_activity(payload: dict) -> dict:
     """Core ingestion pipeline — matches ingest_prod.py 1:1 but reads from
@@ -625,7 +869,7 @@ def process_item_activity(payload: dict) -> dict:
     item_id = item_stub["id"]
 
     try:
-        # 1. Fetch full item metadata (need parentReference, webUrl, name)
+        # 1. Fetch full item metadata (need parentReference, webUrl, name, size)
         if not item_stub.get("webUrl"):
             full_item = graph_client.get_item(drive_id, item_id)
         else:
@@ -636,66 +880,109 @@ def process_item_activity(payload: dict) -> dict:
         parent_ref = full_item.get("parentReference") or {}
         folder_path = (parent_ref.get("path") or "").split("root:", 1)[-1].lstrip("/")
 
-        # 2. Download bytes + compute hash
-        pdf_bytes = graph_client.download_item_bytes(drive_id, item_id)
-        content_hash = ingestion.md5_hash(pdf_bytes)
+        # 1b. Preflight — skip oversize PDFs before paying download/OCR cost.
+        size_bytes = full_item.get("size") or item_stub.get("size") or 0
+        if size_bytes and size_bytes > PREFLIGHT_MAX_SIZE_MB * 1024 * 1024:
+            reason = f"preflight_oversize size_mb={size_bytes/1e6:.1f} max_mb={PREFLIGHT_MAX_SIZE_MB}"
+            logging.warning(
+                "process_item_activity PREFLIGHT_REJECT item_id=%s name=%r %s",
+                item_id, name, reason,
+            )
+            dlq.send_dlq_message("file_upsert", reason, site_id=site_id, item_id=item_id)
+            return {"status": "skipped", "reason": reason, "item_id": item_id, "name": name}
 
-        # 3. Dedup check — if hash already in index, merge alternative_urls
-        existing = search_client.find_by_content_hash(content_hash)
-        if existing:
-            current_urls = set(existing[0].get("alternative_urls") or [])
-            current_urls.discard(existing[0].get("sharepoint_url") or "")
-            if web_url and web_url != existing[0].get("sharepoint_url") and web_url not in current_urls:
-                current_urls.add(web_url)
-                patches = [
-                    {"id": c["id"], "alternative_urls": sorted(current_urls)}
-                    for c in existing
-                ]
-                search_client.get_search_client().merge_documents(documents=patches)
+        # 2. Stream download to /tmp + compute hash (zero large objects in RAM)
+        # Falls back to in-memory download if streaming fails.
+        tmp_path: str | None = None
+        try:
+            tmp_path, content_hash = graph_client.stream_download_to_temp(drive_id, item_id)
+            pdf_bytes = None  # intentionally None — use tmp_path path below
+        except Exception as _stream_err:
+            logging.warning("stream_download_to_temp failed (%s), falling back to bytes", _stream_err)
+            pdf_bytes = graph_client.download_item_bytes(drive_id, item_id)
+            content_hash = ingestion.md5_hash(pdf_bytes)
+
+        try:
+            # 3. Dedup check — if hash already in index, merge alternative_urls
+            existing = search_client.find_by_content_hash(content_hash)
+            if existing:
+                current_urls = set(existing[0].get("alternative_urls") or [])
+                current_urls.discard(existing[0].get("sharepoint_url") or "")
+                if web_url and web_url != existing[0].get("sharepoint_url") and web_url not in current_urls:
+                    current_urls.add(web_url)
+                    patches = [
+                        {"id": c["id"], "alternative_urls": sorted(current_urls)}
+                        for c in existing
+                    ]
+                    search_client.get_search_client().merge_documents(documents=patches)
+                    return {
+                        "status": "ok",
+                        "mode": "dedup_hit_merge_urls",
+                        "content_hash": content_hash,
+                        "chunks": len(existing),
+                        "new_alt_url": web_url,
+                    }
                 return {
-                    "status": "ok",
-                    "mode": "dedup_hit_merge_urls",
+                    "status": "skipped",
+                    "reason": "dedup_hit_no_changes",
                     "content_hash": content_hash,
                     "chunks": len(existing),
-                    "new_alt_url": web_url,
                 }
-            return {
-                "status": "skipped",
-                "reason": "dedup_hit_no_changes",
-                "content_hash": content_hash,
-                "chunks": len(existing),
-            }
 
-        # 4. ACL extraction (D-7)
-        list_id = parent_ref.get("sharepointIds", {}).get("listId") or ""
-        list_item_id = parent_ref.get("sharepointIds", {}).get("listItemUniqueId") or ""
-        if not list_id or not list_item_id:
-            # Fallback: fetch the item again with sharepointIds expand
-            full_item = graph_client.get_item(drive_id, item_id)
-            sp_ids = (full_item.get("sharepointIds") or {})
-            list_id = sp_ids.get("listId") or list_id
-            list_item_id = sp_ids.get("listItemUniqueId") or list_item_id
-        group_ids, user_ids = [], []
-        if list_id and list_item_id:
-            group_ids, user_ids = acls_mod.extract_principals_for_item(
-                site_id=site_id, list_id=list_id, list_item_id=list_item_id
+            # 4. ACL extraction (D-7)
+            list_id = parent_ref.get("sharepointIds", {}).get("listId") or ""
+            list_item_id = parent_ref.get("sharepointIds", {}).get("listItemUniqueId") or ""
+            if not list_id or not list_item_id:
+                full_item = graph_client.get_item(drive_id, item_id)
+                sp_ids = (full_item.get("sharepointIds") or {})
+                list_id = sp_ids.get("listId") or list_id
+                list_item_id = sp_ids.get("listItemUniqueId") or list_item_id
+            group_ids, user_ids = [], []
+            if list_id and list_item_id:
+                group_ids, user_ids = acls_mod.extract_principals_for_item(
+                    site_id=site_id, list_id=list_id, list_item_id=list_item_id
+                )
+
+            # 5. Upload raw PDF to blob (cache for re-indexing) — streaming from
+            # temp file when available, bytes fallback otherwise.
+            blob_name = f"sample_discovery/{content_hash}.pdf"
+            blob = BlobClient(
+                account_url=f"https://{config.STORAGE_ACCOUNT}.blob.core.windows.net",
+                container_name=config.OCR_CONTAINER,
+                blob_name=blob_name,
+                credential=auth.get_mi_credential(),
             )
+            try:
+                if tmp_path:
+                    with open(tmp_path, "rb") as _f:
+                        blob.upload_blob(_f, overwrite=True)
+                else:
+                    blob.upload_blob(pdf_bytes, overwrite=True)
+            except Exception:
+                logging.warning("Failed to cache raw PDF to blob %s", blob_name)
 
-        # 5. Upload raw bytes to blob (cache for re-indexing)
-        blob_name = f"sample_discovery/{content_hash}.pdf"
-        blob = BlobClient(
-            account_url=f"https://{config.STORAGE_ACCOUNT}.blob.core.windows.net",
-            container_name=config.OCR_CONTAINER,
-            blob_name=blob_name,
-            credential=auth.get_mi_credential(),
-        )
-        try:
-            blob.upload_blob(pdf_bytes, overwrite=True)
-        except Exception:
-            logging.warning("Failed to cache raw PDF to blob %s", blob_name)
+            # 6. Document Intelligence — prefer url_source (DI fetches from blob,
+            # zero PDF bytes in Python RAM). Falls back to bytes if SAS generation
+            # fails (e.g. Storage Blob Delegator role not yet assigned).
+            ocr_result = None
+            try:
+                blob_sas_url = auth.generate_blob_read_sas(blob_name)
+                ocr_result = docintel_client.analyze_pdf_url(blob_sas_url)
+            except Exception as _sas_err:
+                logging.warning(
+                    "analyze_pdf_url failed (%s), falling back to bytes path", _sas_err
+                )
+                if pdf_bytes is None and tmp_path:
+                    with open(tmp_path, "rb") as _f:
+                        pdf_bytes = _f.read()
+                ocr_result = docintel_client.analyze_pdf_bytes(pdf_bytes)
 
-        # 6. Document Intelligence
-        ocr_result = docintel_client.analyze_pdf_bytes(pdf_bytes)
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
         # 7. Extraction (gpt-4.1-mini) — fixed schema, not open-ended discovery
         extraction_output = run_extraction(ocr_result)
